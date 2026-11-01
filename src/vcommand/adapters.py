@@ -22,7 +22,7 @@ import sys
 from typing import Any, TextIO
 
 from .core import CONFIG_DIR, load_config, run_task, render_evidence
-from .state import build_frame, render_frame, record_run_failure
+from .state import build_frame, render_frame, record_run_failure, changed_files as _all_changed_files
 from .isolation import DEFAULT_LINKS, IsolationError, Worktree, ensure_clean_repo
 
 PROMPT_PLACEHOLDER = "{prompt}"
@@ -77,9 +77,7 @@ def build_prompt(frame: dict[str, Any], instruction: str | None = None) -> str:
 
 
 def _changed_files(evidence: dict[str, Any], limit: int = 5) -> list[str]:
-    after = evidence.get("git_status_after") or []
-    ignored = (CONFIG_DIR, ".claude/", ".codex/")  # tool state, not work product
-    files = [line[3:] for line in after if len(line) > 3 and not line[3:].startswith(ignored)]
+    files = _all_changed_files(evidence)
     return files[:limit] + ([f"+{len(files) - limit} more"] if len(files) > limit else [])
 
 

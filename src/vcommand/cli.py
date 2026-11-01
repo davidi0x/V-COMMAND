@@ -11,7 +11,7 @@ import tempfile
 from . import __version__
 from .core import (project_root, MODES, init_project, load_config, save_config, run_task,
                    read_evidence, render_evidence, list_evidence)
-from .state import (start_task, load_task, complete_step, set_next_step, clear_task,
+from .state import (start_task, load_task, complete_step, set_next_step, clear_task, set_focus,
                     add_ledger_entry, read_ledger, record_run_failure, build_frame, render_frame)
 from .isolation import IsolationError
 from .demo import run_demo
@@ -48,6 +48,9 @@ def make_parser() -> argparse.ArgumentParser:
     task_sub.add_parser("done", help="Record a completed step").add_argument("step")
     task_sub.add_parser("next", help="Set the next step to hand over").add_argument("step")
     task_sub.add_parser("show", help="Show the current task")
+    focus = task_sub.add_parser("focus", help="Files or file:Symbol the task is about (code slice in the frame)")
+    focus.add_argument("specs", nargs="*", help="e.g. src/auth.ts:AuthService.login src/util.py")
+    focus.add_argument("--clear", action="store_true")
     task_sub.add_parser("clear", help="Remove the current task")
     ledger = sub.add_parser("ledger", help="Negative knowledge: approaches that already failed")
     ledger_sub = ledger.add_subparsers(dest="ledger_action", required=True)
@@ -181,6 +184,16 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"V/  Next step set: {args.step}")
             elif args.task_action == "clear":
                 print("V/  Task cleared" if clear_task(root) else "V/  No active task")
+            elif args.task_action == "focus":
+                if not args.specs and not args.clear:
+                    raise ValueError("Use: vcmd task focus src/file.ts:Symbol [...]  or  --clear")
+                t = set_focus(root, [] if args.clear else args.specs)
+                print(f"V/  Focus: {', '.join(t['focus']) or 'cleared'}")
+                if t["focus"]:
+                    from .slice import build_slice
+                    sl = build_slice(root, t["focus"])
+                    print(f"V/  Slice: {len(sl['symbols'])} item(s), {len(sl['references'])} reference(s)"
+                          + (f"; problems: {'; '.join(sl['problems'])}" if sl["problems"] else ""))
             else:
                 t = load_task(root)
                 if t is None:
@@ -190,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
                     for i, step in enumerate(t["completed_steps"], 1):
                         print(f"  {i}. [done] {step['step']}")
                     print(f"  next: {t.get('next_step') or 'not set'}")
+                    if t.get("focus"):
+                        print(f"  focus: {', '.join(t['focus'])}")
             return 0
         if args.command == "ledger":
             if args.ledger_action == "add":

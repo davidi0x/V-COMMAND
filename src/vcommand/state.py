@@ -16,6 +16,7 @@ import uuid
 from typing import Any
 
 from .core import CONFIG_DIR, list_evidence, load_config, git_status, utc_now
+from .slice import build_slice, parse_focus, render_slice
 
 FRAME_VERSION = 1
 MAX_TEXT = 500           # per ledger field; keeps frames small and limits accidental leakage
@@ -85,6 +86,14 @@ def set_next_step(root: Path, step: str) -> dict[str, Any]:
     return task
 
 
+def set_focus(root: Path, specs: list[str]) -> dict[str, Any]:
+    """Files or `file:Symbol` the task is about; the frame then carries their code and blast radius."""
+    task = _require_task(root)
+    task["focus"] = [s.strip() for s in specs if s.strip()]
+    _save_task(root, task)
+    return task
+
+
 def clear_task(root: Path) -> bool:
     path = task_path(root)
     if path.exists():
@@ -99,8 +108,16 @@ def ledger_path(root: Path) -> Path:
     return root / CONFIG_DIR / "ledger.jsonl"
 
 
+def changed_files(evidence: dict[str, Any]) -> list[str]:
+    """Work-product files from a run's post-run git status (tool state directories excluded)."""
+    after = evidence.get("git_status_after") or []
+    ignored = (CONFIG_DIR, ".claude/", ".codex/")
+    return [line[3:].strip('"') for line in after if len(line) > 3 and not line[3:].startswith(ignored)]
+
+
 def add_ledger_entry(root: Path, *, tried: str, failure: str, constraint: str | None = None,
-                     agent: str | None = None, run_id: str | None = None, source: str = "manual") -> dict[str, Any]:
+                     agent: str | None = None, run_id: str | None = None, source: str = "manual",
+                     files: list[str] | None = None, failed_checks: list[str] | None = None) -> dict[str, Any]:
     """Append one failed approach. Append-only JSON Lines; never stores command output."""
     tried_c = _clean(tried, "description of what was tried")
     failure_c = _clean(failure, "failure reason")
@@ -114,6 +131,9 @@ def add_ledger_entry(root: Path, *, tried: str, failure: str, constraint: str | 
         "tried": tried_c,
         "failure": failure_c,
         "constraint": _clean(constraint, "constraint") if constraint else f"Do not repeat: {tried_c} (failed: {failure_c})"[:MAX_TEXT],
+        # structured fields feed pre-flight hints (counts per file / per gate)
+        "files": [f[:200] for f in (files or [])][:50],
+        "failed_checks": [c[:300] for c in (failed_checks or [])][:20],
     }
     path = ledger_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,17 +159,20 @@ def read_ledger(root: Path) -> list[dict[str, Any]]:
 def record_run_failure(root: Path, evidence: dict[str, Any], *, agent: str | None, note: str | None) -> dict[str, Any] | None:
     """Turn a failed `vcmd run` into a ledger entry. Returns None when the run did not fail."""
     status = evidence["status"]
+    failed_checks: list[str] = []
     if status == "failed":
         a = evidence["action"]
         failure = "command timed out" if a.get("timed_out") else f"command exited with code {a['exit_code']}"
     elif status == "failed_verification":
         failed = [c for c in evidence["checks"] if not c["passed"]]
+        failed_checks = [" ".join(c["argv"]) for c in failed]
         failure = "; ".join(f"check `{' '.join(c['argv'])}` " + ("timed out" if c.get("timed_out") else f"exited {c['exit_code']}")
                             for c in failed)
     else:
         return None
     tried = note or f"run `{' '.join(evidence['action']['argv'])}`"
-    return add_ledger_entry(root, tried=tried, failure=failure, agent=agent, run_id=evidence["id"], source="run")
+    return add_ledger_entry(root, tried=tried, failure=failure, agent=agent, run_id=evidence["id"], source="run",
+                            files=changed_files(evidence), failed_checks=failed_checks)
 
 
 # ---------------------------------------------------------------- context frame
@@ -163,6 +186,30 @@ def _git_head(root: Path) -> str | None:
     except (OSError, subprocess.TimeoutExpired):
         return None
     return (out.stdout.strip() or None) if out.returncode == 0 else None
+
+
+def preflight_hints(ledger: list[dict[str, Any]], focus: list[str] | None = None, limit: int = 5) -> list[str]:
+    """Pre-flight warnings derived only from counts in this project's ledger — never invented rates.
+
+    A gate that failed repeatedly, or a file that was part of several failed attempts, is worth
+    flagging before the next agent starts. Files in the task focus are ranked first."""
+    from collections import Counter
+
+    total = len(ledger)
+    if total < 2:
+        return []
+    gates = Counter(c for e in ledger for c in set(e.get("failed_checks") or []))
+    files = Counter(f for e in ledger for f in set(e.get("files") or []))
+    focus_files = {parse_focus(spec)[0] for spec in (focus or [])}
+    hints = []
+    for gate, n in gates.most_common():
+        if n >= 2:
+            hints.append((0, f"Gate `{gate}` failed in {n} of {total} recorded failed attempts in this project."))
+    for f, n in sorted(files.items(), key=lambda kv: (kv[0] not in focus_files, -kv[1], kv[0])):
+        if n >= 2:
+            hints.append((0 if f in focus_files else 1,
+                          f"`{f}` was changed in {n} of {total} recorded failed attempts; check its callers and tests."))
+    return [h for _, h in sorted(hints, key=lambda x: x[0])][:limit]
 
 
 def continuity_token(frame: dict[str, Any]) -> str:
@@ -187,12 +234,15 @@ def build_frame(root: Path) -> dict[str, Any]:
             "completed_steps": [s["step"] for s in task["completed_steps"]],
             "next_step": task.get("next_step"),
         },
+        "focus": None if task is None else task.get("focus") or None,
+        "code_slice": build_slice(root, task["focus"]) if task and task.get("focus") else None,
         "acceptance_gates": [" ".join(c) for c in cfg["checks"]],
         "negative_knowledge": [
             {k: e.get(k) for k in ("id", "agent", "tried", "failure", "constraint")}
             for e in ledger[-MAX_LEDGER_IN_FRAME:]
         ],
         "negative_knowledge_omitted": max(0, len(ledger) - MAX_LEDGER_IN_FRAME),
+        "preflight_hints": preflight_hints(ledger, (task or {}).get("focus")),
         "last_run": None if last is None else {
             "id": last["id"], "status": last["status"],
             "failed_checks": [" ".join(c["argv"]) for c in last["checks"] if not c["passed"]],
@@ -203,7 +253,9 @@ def build_frame(root: Path) -> dict[str, Any]:
             "working_tree_omitted": 0 if status is None else max(0, len(status) - MAX_STATUS_LINES),
         },
         "limitations": [
-            "No AST/dependency slice yet: the receiving agent must read the files it needs.",
+            ("Code slice is heuristic for TS/JS (Python uses the ast module); references are text matches."
+             if task and task.get("focus") else
+             "No code focus set (`vcmd task focus`): the receiving agent must read the files it needs."),
             "Working tree is a git status snapshot, not a diff.",
             "Gates are the configured checks; passing them is not proof of correctness.",
         ],
@@ -232,6 +284,12 @@ def render_frame(frame: dict[str, Any]) -> str:
         if frame["negative_knowledge_omitted"]:
             out.append(f"- …{frame['negative_knowledge_omitted']} older entries omitted (`vcmd ledger list`)")
         out.append("")
+    if frame.get("preflight_hints"):
+        out.append("## Pre-flight warnings (counted from this project's ledger)")
+        out += [f"- [!] {h}" for h in frame["preflight_hints"]]
+        out.append("")
+    if frame.get("code_slice"):
+        out += render_slice(frame["code_slice"])
     out.append("## Acceptance gates (must pass, run by V/COMMAND, not self-reported)")
     out += [f"- `{g}`" for g in frame["acceptance_gates"]] or ["- none configured: work will be reported as unverified"]
     out.append("")
