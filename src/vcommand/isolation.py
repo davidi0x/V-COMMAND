@@ -36,6 +36,31 @@ def _err(proc: subprocess.CompletedProcess) -> str:
     return lines[-1] if lines else f"exit {proc.returncode}"
 
 
+def work_changes(cwd: Path, extra_excludes: tuple[str, ...] = ()) -> list[str]:
+    """Changed paths (tracked and untracked, deletions included) minus tool state and `extra_excludes`.
+
+    Uses `git status -z` and filters in Python: pathspec excludes make `git add` fail when an
+    excluded directory exists and is gitignored (the common case for .vcommand/)."""
+    proc = _git(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"], cwd)
+    if proc.returncode != 0:
+        raise IsolationError(f"git status failed: {_err(proc)}")
+    skip = TOOL_STATE + tuple(e.rstrip("/") + "/" for e in extra_excludes)
+    paths = []
+    for entry in proc.stdout.decode("utf-8", "replace").split("\0"):
+        if len(entry) > 3:
+            path = entry[3:]
+            if not (path + "/").startswith(skip) and path not in extra_excludes:
+                paths.append(path)
+    return paths
+
+
+def stage(cwd: Path, paths: list[str]) -> None:
+    for start in range(0, len(paths), 200):  # keep command lines short on Windows
+        proc = _git(["add", "-A", "--", *paths[start:start + 200]], cwd)
+        if proc.returncode != 0:
+            raise IsolationError(f"git add failed: {_err(proc)}")
+
+
 def ensure_clean_repo(root: Path) -> str:
     """Return HEAD. Refuse when the working tree has changes, since a worktree would not contain them."""
     if not shutil.which("git"):
@@ -62,6 +87,7 @@ class Worktree:
         self._parent = Path(tempfile.mkdtemp(prefix="vcmd-attempt-"))
         self.path = self._parent / "wt"
         self.warnings: list[str] = []
+        self.extra_excludes: tuple[str, ...] = ("VCOMMAND_QUESTION.md",)  # queue signal, never product code
 
     def __enter__(self) -> "Worktree":
         proc = _git(["worktree", "add", "--detach", str(self.path), self.head], self.root)
@@ -85,10 +111,7 @@ class Worktree:
 
     def patch(self) -> bytes:
         """Binary diff of everything the attempt changed, excluding tool state and linked dirs."""
-        excludes = [f":(exclude){p.rstrip('/')}" for p in TOOL_STATE] + [f":(exclude){n}" for n in self.links]
-        add = _git(["add", "-A", "--", ".", *excludes], self.path)
-        if add.returncode != 0:
-            raise IsolationError(f"git add in worktree failed: {_err(add)}")
+        stage(self.path, work_changes(self.path, tuple(self.links) + self.extra_excludes))
         diff = _git(["diff", "--cached", "--binary", self.head], self.path)
         if diff.returncode != 0:
             raise IsolationError(f"git diff in worktree failed: {_err(diff)}")

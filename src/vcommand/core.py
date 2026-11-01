@@ -149,7 +149,7 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
              external: bool = False, log=None, child_stdout: int | None = None,
              gates_judge: bool = False, child_stdin: int | None = None, cwd: Path | None = None,
              env: dict[str, str] | None = None, isolated: bool = False,
-             cost_parser: str | None = None) -> dict[str, Any]:
+             cost_parser: str | None = None, extra_checks: list[list[str]] | None = None) -> dict[str, Any]:
     """Execute `argv`, then the configured checks, and persist evidence.
 
     external=True: the work was done elsewhere (e.g. an interactive agent session ending);
@@ -188,7 +188,7 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
     check_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     run_checks = action["passed"] or (gates_judge and "error_type" not in action)
     if run_checks:
-        for check_argv in cfg["checks"]:
+        for check_argv in cfg["checks"] + list(extra_checks or []):
             print(f"V/  VERIFY     {' '.join(check_argv)}", file=log, flush=True)
             checks.append(execute(check_argv, work, check_timeout, stdout=child_stdout, env=check_env))
     else:

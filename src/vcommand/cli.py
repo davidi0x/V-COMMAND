@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -93,6 +94,33 @@ def make_parser() -> argparse.ArgumentParser:
     hook = sub.add_parser("hook", help="Hook entry point called by the agent (reads JSON on stdin)")
     hook.add_argument("target", choices=HOOK_TARGETS)
     hook.add_argument("event", choices=["session-start", "stop"])
+    queue = sub.add_parser("queue", help="Overnight task queue: verified tasks are committed, questions wait for you")
+    queue_sub = queue.add_subparsers(dest="queue_action", required=True)
+    q_add = queue_sub.add_parser("add", help="Add a task")
+    q_add.add_argument("goal")
+    q_add.add_argument("--focus", action="append", default=[], help="file or file:Symbol (repeatable)")
+    q_add.add_argument("--gate", action="append", default=[], help="Extra gate command for this task (repeatable)")
+    q_add.add_argument("--after", action="append", default=[], help="Run only after this task id is done")
+    q_add.add_argument("--priority", type=int, default=0)
+    queue_sub.add_parser("list", help="Show queue state (same as report)")
+    queue_sub.add_parser("report", help="Morning report: committed, failed, waiting for decisions")
+    q_run = queue_sub.add_parser("run", help="Process the queue with the given agents (isolated attempts)")
+    q_run.add_argument("agents", nargs="+")
+    q_run.add_argument("--attempts", type=int)
+    q_run.add_argument("--max-tasks", type=int)
+    q_run.add_argument("--until", help="Do not start new tasks after HH:MM (local time)")
+    q_run.add_argument("--budget", type=float, help="Per-task budget in USD (known provider-reported spend)")
+    q_run.add_argument("--timeout", type=int, default=3600)
+    q_ans = queue_sub.add_parser("answer", help="Answer a frozen task's question; it returns to the queue")
+    q_ans.add_argument("id")
+    q_ans.add_argument("text")
+    ask_p = sub.add_parser("ask", help="(for agents) freeze the current queue task with a question for the developer")
+    ask_p.add_argument("question")
+    ask_p.add_argument("--option", action="append", default=[])
+    hw = sub.add_parser("hw", help="Hardware probe and local backup model recommendation")
+    hw.add_argument("--json", action="store_true")
+    hw.add_argument("--add-agent", metavar="NAME", help="Register a local agent (Codex --oss + Ollama) in config")
+    hw.add_argument("--model", help="Model tag for --add-agent (default: the recommendation)")
     sub.add_parser("cost", help="Report tracked and unknown provider costs")
     demo = sub.add_parser("demo", help="Done isn't verified: scripted agents, real checks, ledger and handoff")
     demo.add_argument("--fast", action="store_true", help="No pauses (for CI and recordings)")
@@ -123,6 +151,50 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as error:  # noqa: BLE001 - hooks must fail open
                 print(f"V/  hook error: {type(error).__name__}: {error}", file=sys.stderr)
                 return 0
+        if args.command == "queue":
+            from . import queue as q
+            if args.queue_action == "add":
+                import shlex
+                gates = [shlex.split(g, posix=os.name != "nt") for g in args.gate]
+                t = q.add_task(root, args.goal, focus=args.focus, gates=gates, after=args.after,
+                               priority=args.priority)
+                print(f"V/  Queued {t['id']}: {t['goal']}")
+                return 0
+            if args.queue_action in {"list", "report"}:
+                print(q.render_report(q.load_queue(root)))
+                return 0
+            if args.queue_action == "answer":
+                t = q.answer(root, args.id, args.text)
+                print(f"V/  {t['id']} back in the queue with your decision")
+                return 0
+            return q.run_queue(root, args.agents, attempts=args.attempts, max_tasks=args.max_tasks,
+                               until=args.until, budget_usd=args.budget, timeout=args.timeout)
+        if args.command == "ask":
+            from . import queue as q
+            task_id = q.current_queue_task()
+            if not task_id:
+                raise ValueError("vcmd ask works inside a queue run (VCOMMAND_QUEUE_TASK is not set)")
+            q.ask(root, task_id, args.question, args.option)
+            print(f"V/  Task {task_id} frozen until the developer answers. Stop working on it now.")
+            return 0
+        if args.command == "hw":
+            from .hw import probe, recommend, render, local_agent_template
+            info = probe(root)
+            rec = recommend(info)
+            if args.add_agent:
+                model = args.model or (rec["model"] or {}).get("tag")
+                if not model:
+                    raise ValueError("No local model fits this machine; pass --model <ollama tag> to override")
+                cfg = load_config(root)
+                cfg.setdefault("agents", {})[args.add_agent] = local_agent_template(model)
+                save_config(root, cfg)
+                print(f"V/  Agent '{args.add_agent}' -> codex --oss with Ollama model {model}")
+                print(f"V/  Use it as fallback: vcmd agent claude {args.add_agent}")
+                if not rec["installed"] or args.model:
+                    print(f"V/  Make sure the model is available: ollama pull {model}")
+                return 0
+            print(json.dumps({"hardware": info, "recommendation": rec}, indent=2) if args.json else render(info, rec))
+            return 0
         if args.command == "bench":
             from .bench import run_bench
             if args.repeats < 1 or args.timeout < 1:

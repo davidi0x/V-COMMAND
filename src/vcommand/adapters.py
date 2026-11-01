@@ -165,21 +165,28 @@ def _changed_files(evidence: dict[str, Any], limit: int = 5) -> list[str]:
     return files[:limit] + ([f"+{len(files) - limit} more"] if len(files) > limit else [])
 
 
-def agent_env(root: Path) -> dict[str, str]:
+def agent_env(root: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
     """Environment for launched agents: `vcmd` inside them (CLI or hooks) targets the main project."""
-    return {**os.environ, "VCOMMAND_ROOT": str(root.resolve()), "VCOMMAND_WRAPPED": "1"}
+    return {**os.environ, "VCOMMAND_ROOT": str(root.resolve()), "VCOMMAND_WRAPPED": "1", **(extra or {})}
+
+
+STOPPED_FOR_HUMAN = 3  # run_agents exit code: an agent asked for a human decision
 
 
 def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, instruction: str | None = None,
                timeout: int = 3600, check_timeout: int = 600, out: TextIO | None = None,
-               isolate: bool = False, budget_usd: float | None = None) -> int:
+               isolate: bool = False, budget_usd: float | None = None,
+               extra_checks: list[list[str]] | None = None, extra_env: dict[str, str] | None = None,
+               stop_check=None) -> int:
     """Run agents in order (cycling) until the gates pass. Returns a CLI exit code.
 
     isolate=True: every attempt runs in a fresh git worktree at HEAD; only a verified attempt's
     changes are applied to the working tree, failed attempts are discarded.
     Agents whose provider recently failed (circuit open) are skipped while others are available.
     budget_usd (or config budget.max_usd_per_task): stop before an attempt once the known,
-    provider-reported spend on the current task reaches the limit."""
+    provider-reported spend on the current task reaches the limit.
+    stop_check(work_dir) -> reason | None is called after each attempt, before anything is applied;
+    a reason stops the run with STOPPED_FOR_HUMAN and discards that attempt (used by the queue)."""
     out = out or sys.stdout
     cfg = load_config(root)
     templates = agent_templates(cfg)
@@ -194,7 +201,7 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
     cooldown = int(cfg.get("failover", {}).get("cooldown_s", DEFAULT_COOLDOWN_S))
     head = ensure_clean_repo(root) if isolate else None
     links = cfg.get("isolation", {}).get("link", list(DEFAULT_LINKS))
-    if not cfg["checks"]:
+    if not cfg["checks"] and not extra_checks:
         print("V/  WARNING    no checks configured: the result can only be 'unverified' and no handoff will happen",
               file=out)
     cursor = 0
@@ -224,7 +231,8 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
                  for a in spec["argv"]]
         print(f"\nV/  HANDOFF    attempt {n}/{attempts} -> {name}", file=out, flush=True)
         common = dict(timeout=timeout, check_timeout=check_timeout, agent=name, record_argv=shown, gates_judge=True,
-                      child_stdin=subprocess.DEVNULL, env=agent_env(root), cost_parser=spec["cost"])
+                      child_stdin=subprocess.DEVNULL, env=agent_env(root, extra_env), cost_parser=spec["cost"],
+                      extra_checks=extra_checks)
         if isolate:
             with Worktree(root, head, links) as wt:
                 print(f"V/  ISOLATE    worktree at {head[:12]} ({wt.path})", file=out, flush=True)
@@ -233,6 +241,10 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
                 item = run_task(root, argv, cwd=wt.path, isolated=True, **common)
                 print(render_evidence(item), file=out)
                 record_health(root, name, provider_failure_reason(item), cooldown)
+                asked = stop_check(wt.path) if stop_check else None
+                if asked:
+                    print(f"V/  FROZEN     {asked}; attempt discarded", file=out)
+                    return STOPPED_FOR_HUMAN
                 if item["status"] in {"verified_by_configured_checks", "unverified"}:
                     try:
                         changed = wt.apply_to_root()
@@ -247,6 +259,10 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
             item = run_task(root, argv, **common)
             print(render_evidence(item), file=out)
             record_health(root, name, provider_failure_reason(item), cooldown)
+            asked = stop_check(root) if stop_check else None
+            if asked:
+                print(f"V/  FROZEN     {asked}", file=out)
+                return STOPPED_FOR_HUMAN
         if item["action"].get("error_type") == "FileNotFoundError":
             print(f"V/  Error: `{spec['argv'][0]}` not found in PATH (agent '{name}')", file=out)
         if item["status"] in {"verified_by_configured_checks", "unverified"}:

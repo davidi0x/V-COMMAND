@@ -34,7 +34,7 @@ class IsolationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         git(self.root, "init", "-q")
-        (self.root / ".gitignore").write_text("node_modules/\n")
+        (self.root / ".gitignore").write_text("node_modules/\n.vcommand/\n")
         (self.root / "app.txt").write_text("v1\n")
         git(self.root, "add", ".")
         git(self.root, "commit", "-q", "-m", "init")
