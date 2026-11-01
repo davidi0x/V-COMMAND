@@ -2,7 +2,7 @@
 
 Two integration styles:
 
-* Hooks (Claude Code): the agent runs interactively; V/COMMAND injects the context frame at
+* Hooks (Claude Code, Codex CLI — same protocol): the agent runs interactively; V/COMMAND injects the context frame at
   SessionStart (startup, resume, /clear, compaction) and runs the acceptance gates at Stop.
   A failed gate blocks the stop (bounded), records the failure in the ledger and tells the
   agent which gate failed.
@@ -27,7 +27,8 @@ PROMPT_PLACEHOLDER = "{prompt}"
 
 # Non-interactive invocations. Override per project in .vcommand/config.json under "agents".
 DEFAULT_AGENTS: dict[str, list[str]] = {
-    "codex": ["codex", "exec", "--full-auto", PROMPT_PLACEHOLDER],
+    # Codex CLI >= 0.16x: `--full-auto` was removed; workspace-write lets the agent edit the repo.
+    "codex": ["codex", "exec", "--sandbox", "workspace-write", PROMPT_PLACEHOLDER],
     "claude": ["claude", "-p", "--permission-mode", "acceptEdits", PROMPT_PLACEHOLDER],
 }
 
@@ -41,10 +42,15 @@ approaches that already failed, and acceptance gates.
 """
 
 DEFAULT_MAX_STOP_BLOCKS = 3
-CLAUDE_HOOK_COMMANDS = {
-    "SessionStart": "vcmd hook claude session-start",
-    "Stop": "vcmd hook claude stop",
-}
+HOOK_TARGETS = ("claude", "codex")
+AGENT_LABELS = {"claude": "claude-code", "codex": "codex"}
+
+
+def hook_commands(target: str) -> dict[str, str]:
+    return {"SessionStart": f"vcmd hook {target} session-start", "Stop": f"vcmd hook {target} stop"}
+
+
+CLAUDE_HOOK_COMMANDS = hook_commands("claude")  # backwards-compatible name
 
 
 # ---------------------------------------------------------------- wrapper (codex / claude -p / custom)
@@ -70,7 +76,8 @@ def build_prompt(frame: dict[str, Any], instruction: str | None = None) -> str:
 
 def _changed_files(evidence: dict[str, Any], limit: int = 5) -> list[str]:
     after = evidence.get("git_status_after") or []
-    files = [line[3:] for line in after if len(line) > 3 and CONFIG_DIR not in line[3:]]
+    ignored = (CONFIG_DIR, ".claude/", ".codex/")  # tool state, not work product
+    files = [line[3:] for line in after if len(line) > 3 and not line[3:].startswith(ignored)]
     return files[:limit] + ([f"+{len(files) - limit} more"] if len(files) > limit else [])
 
 
@@ -114,14 +121,14 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
     return 1
 
 
-# ---------------------------------------------------------------- Claude Code hooks
+# ---------------------------------------------------------------- agent hooks (Claude Code, Codex)
 
-def _hook_state_path(root: Path) -> Path:
-    return root / CONFIG_DIR / "hooks" / "claude-stop.json"
+def _hook_state_path(root: Path, target: str) -> Path:
+    return root / CONFIG_DIR / "hooks" / f"{target}-stop.json"
 
 
-def _bump_blocks(root: Path, session_id: str, reset: bool = False) -> int:
-    path = _hook_state_path(root)
+def _bump_blocks(root: Path, target: str, session_id: str, reset: bool = False) -> int:
+    path = _hook_state_path(root, target)
     try:
         state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except (json.JSONDecodeError, OSError):
@@ -141,8 +148,8 @@ def _hook_root(payload: dict[str, Any]) -> Path:
     return Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd()
 
 
-def claude_session_start(payload: dict[str, Any], out: TextIO) -> int:
-    """SessionStart: stdout is added to Claude's context."""
+def hook_session_start(payload: dict[str, Any], out: TextIO) -> int:
+    """SessionStart: plain stdout is added to the agent's context (Claude Code and Codex)."""
     root = _hook_root(payload)
     try:
         frame = build_frame(root)
@@ -154,8 +161,10 @@ def claude_session_start(payload: dict[str, Any], out: TextIO) -> int:
     return 0
 
 
-def claude_stop(payload: dict[str, Any], out: TextIO, err: TextIO) -> int:
-    """Stop: run gates; on failure block the stop (bounded) and record the failure."""
+def hook_stop(payload: dict[str, Any], out: TextIO, err: TextIO, target: str = "claude") -> int:
+    """Stop: run gates; on failure block the stop (bounded) and record the failure.
+
+    Reply protocol shared by Claude Code and Codex: JSON on stdout, {"decision": "block", "reason": ...}."""
     root = _hook_root(payload)
     try:
         cfg = load_config(root)
@@ -164,33 +173,37 @@ def claude_stop(payload: dict[str, Any], out: TextIO, err: TextIO) -> int:
     if not cfg["checks"]:
         return 0
     session = str(payload.get("session_id") or "unknown")
-    max_blocks = cfg.get("hooks", {}).get("claude_max_stop_blocks", DEFAULT_MAX_STOP_BLOCKS)
+    hook_cfg = cfg.get("hooks", {})
+    max_blocks = hook_cfg.get(f"{target}_max_stop_blocks", hook_cfg.get("max_stop_blocks", DEFAULT_MAX_STOP_BLOCKS))
+    label = AGENT_LABELS.get(target, target)
     # Child processes and progress lines go to stderr: stdout is reserved for the hook's JSON reply.
-    item = run_task(root, [f"claude-code:session:{session[:8]}"], external=True, agent="claude-code",
+    item = run_task(root, [f"{label}:session:{session[:8]}"], external=True, agent=label,
                     log=err, child_stdout=2)
     if item["status"] == "verified_by_configured_checks":
-        _bump_blocks(root, session, reset=True)
+        _bump_blocks(root, target, session, reset=True)
         return 0
     changed = _changed_files(item)
-    entry = record_run_failure(root, item, agent="claude-code",
-                               note=f"claude-code session {session[:8]}" +
+    entry = record_run_failure(root, item, agent=label,
+                               note=f"{label} session {session[:8]}" +
                                     (f" changing {', '.join(changed)}" if changed else ""))
     failure = entry["failure"] if entry else item["status"]
-    blocks = _bump_blocks(root, session)
+    blocks = _bump_blocks(root, target, session)
     if blocks <= max_blocks:
         reason = (f"V/COMMAND acceptance gates failed ({blocks}/{max_blocks}): {failure}. "
                   f"Run the failing check, fix the cause, and do not reuse an approach that already failed "
                   f"(see `vcmd frame`). Evidence: {item['id']}.")
         json.dump({"decision": "block", "reason": reason}, out)
     else:
-        _bump_blocks(root, session, reset=True)
+        _bump_blocks(root, target, session, reset=True)
         json.dump({"systemMessage": f"V/COMMAND: gates still failing after {max_blocks} retries — {failure}. "
                                     f"Not verified. Evidence: {item['id']}."}, out)
     out.write("\n")
     return 0
 
 
-def run_claude_hook(event: str, stdin: TextIO, out: TextIO, err: TextIO) -> int:
+def run_hook(target: str, event: str, stdin: TextIO, out: TextIO, err: TextIO) -> int:
+    if target not in HOOK_TARGETS:
+        raise ValueError(f"Unknown hook target: {target}")
     raw = stdin.read()
     try:
         payload = json.loads(raw) if raw.strip() else {}
@@ -199,19 +212,24 @@ def run_claude_hook(event: str, stdin: TextIO, out: TextIO, err: TextIO) -> int:
     if not isinstance(payload, dict):
         payload = {}
     if event == "session-start":
-        return claude_session_start(payload, out)
+        return hook_session_start(payload, out)
     if event == "stop":
-        return claude_stop(payload, out, err)
-    raise ValueError(f"Unknown Claude Code hook event: {event}")
+        return hook_stop(payload, out, err, target)
+    raise ValueError(f"Unknown hook event: {event}")
 
 
-def _settings_path(root: Path) -> Path:
-    return root / ".claude" / "settings.json"
+def run_claude_hook(event: str, stdin: TextIO, out: TextIO, err: TextIO) -> int:
+    return run_hook("claude", event, stdin, out, err)
 
 
-def install_claude_hooks(root: Path, settings: Path | None = None) -> tuple[Path, list[str]]:
-    """Merge V/COMMAND hooks into Claude Code project settings. Idempotent; keeps other hooks."""
-    path = settings or _settings_path(root)
+def settings_path(root: Path, target: str) -> Path:
+    """Project-level hook files: Claude Code settings, or Codex hooks.json (needs /hooks trust)."""
+    return root / ".claude" / "settings.json" if target == "claude" else root / ".codex" / "hooks.json"
+
+
+def install_hooks(root: Path, target: str = "claude", settings: Path | None = None) -> tuple[Path, list[str]]:
+    """Merge V/COMMAND hooks into the agent's project settings. Idempotent; keeps other hooks."""
+    path = settings or settings_path(root, target)
     data: dict[str, Any] = {}
     if path.exists():
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -221,7 +239,7 @@ def install_claude_hooks(root: Path, settings: Path | None = None) -> tuple[Path
     if not isinstance(hooks, dict):
         raise ValueError(f'"hooks" in {path} is not an object')
     added = []
-    for event, command in CLAUDE_HOOK_COMMANDS.items():
+    for event, command in hook_commands(target).items():
         groups = hooks.setdefault(event, [])
         present = any(h.get("command") == command for g in groups if isinstance(g, dict)
                       for h in g.get("hooks", []) if isinstance(h, dict))
@@ -238,14 +256,14 @@ def install_claude_hooks(root: Path, settings: Path | None = None) -> tuple[Path
     return path, added
 
 
-def uninstall_claude_hooks(root: Path, settings: Path | None = None) -> tuple[Path, list[str]]:
-    path = settings or _settings_path(root)
+def uninstall_hooks(root: Path, target: str = "claude", settings: Path | None = None) -> tuple[Path, list[str]]:
+    path = settings or settings_path(root, target)
     if not path.exists():
         return path, []
     data = json.loads(path.read_text(encoding="utf-8"))
     hooks = data.get("hooks", {}) if isinstance(data, dict) else {}
     removed = []
-    for event, command in CLAUDE_HOOK_COMMANDS.items():
+    for event, command in hook_commands(target).items():
         groups = hooks.get(event)
         if not isinstance(groups, list):
             continue
@@ -267,3 +285,11 @@ def uninstall_claude_hooks(root: Path, settings: Path | None = None) -> tuple[Pa
         data.pop("hooks", None)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return path, removed
+
+
+def install_claude_hooks(root: Path, settings: Path | None = None) -> tuple[Path, list[str]]:
+    return install_hooks(root, "claude", settings)
+
+
+def uninstall_claude_hooks(root: Path, settings: Path | None = None) -> tuple[Path, list[str]]:
+    return uninstall_hooks(root, "claude", settings)

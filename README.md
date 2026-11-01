@@ -35,7 +35,7 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Model-independent task state:** `vcmd task` keeps the goal, completed steps and next step on disk, outside any chat session.
 - **Negative knowledge ledger:** failed runs are recorded automatically (`vcmd run --agent … --note …`), so the next agent is told what already failed. Command output is never stored.
 - **Context frame handoff:** `vcmd frame` compiles goal, progress, hard constraints, acceptance gates and repo state into a compact prompt (or `--json`) for *any* agent or model, with a continuity token.
-- **Agent adapters:** `vcmd hooks install claude` injects the frame into every Claude Code session (start, resume, `/clear`, compaction) and blocks Claude from finishing while your checks fail. `vcmd agent codex claude` runs agents non-interactively and hands the task to the next one when gates fail.
+- **Agent adapters:** `vcmd hooks install claude` (or `codex`) injects the frame into every agent session (start, resume, `/clear`, compaction) and blocks Claude from finishing while your checks fail. `vcmd agent codex claude` runs agents non-interactively and hands the task to the next one when gates fail.
 - No API dependency, no background daemon, no telemetry, no cloud account.
 - Python 3.10+, Windows/macOS/Linux intended; tested in CI matrix.
 
@@ -70,6 +70,7 @@ vcmd frame --out handoff.md     # give this to model B, from any provider
 
 ```bash
 vcmd hooks install claude      # Claude Code: frame at session start, checks at Stop
+vcmd hooks install codex       # Codex CLI: same, after trusting the hooks via /hooks
 vcmd agent codex claude        # Codex first; on failed gates hand off to Claude
 ```
 
@@ -98,9 +99,9 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | Configurable post-run checks | Implemented |
 | Local Evidence Report | Implemented |
 | Git status before/after (not causal attribution) | Implemented |
-| Claude Code hooks (frame injection, gate at Stop) | Implemented |
+| Claude Code and Codex CLI hooks (frame injection, gate at Stop) | Implemented |
 | Non-interactive agent wrapper with handoff (Codex CLI, `claude -p`, custom) | Implemented |
-| OpenCode adapter, Codex hooks | Planned |
+| OpenCode adapter | Planned |
 | Manual cross-agent handoff (context frame + ledger) | Implemented |
 | AST/dependency slice in the frame | Planned |
 | Automatic model routing / failover | Planned |

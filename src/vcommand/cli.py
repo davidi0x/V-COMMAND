@@ -13,8 +13,7 @@ from .core import (MODES, init_project, load_config, save_config, run_task,
                    read_evidence, render_evidence, list_evidence)
 from .state import (start_task, load_task, complete_step, set_next_step, clear_task,
                     add_ledger_entry, read_ledger, record_run_failure, build_frame, render_frame)
-from .adapters import (run_agents, run_claude_hook, install_claude_hooks, uninstall_claude_hooks,
-                       agent_templates)
+from .adapters import run_agents, run_hook, install_hooks, uninstall_hooks, agent_templates, HOOK_TARGETS
 
 
 def tokens(args: list[str]) -> list[str]:
@@ -69,12 +68,12 @@ def make_parser() -> argparse.ArgumentParser:
     agent.add_argument("--timeout", type=int, default=3600, help="Per-attempt agent timeout in seconds")
     agent.add_argument("--check-timeout", type=int, default=600, help="Each check timeout in seconds")
     agent.add_argument("--list", action="store_true", help="Show configured agent command templates")
-    hooks = sub.add_parser("hooks", help="Install or remove agent hooks (Claude Code)")
+    hooks = sub.add_parser("hooks", help="Install or remove agent hooks (Claude Code, Codex CLI)")
     hooks.add_argument("action", choices=["install", "uninstall"])
-    hooks.add_argument("target", choices=["claude"])
-    hooks.add_argument("--settings", help="Settings file (default: .claude/settings.json in this project)")
+    hooks.add_argument("target", choices=HOOK_TARGETS)
+    hooks.add_argument("--settings", help="Hook file (default: .claude/settings.json or .codex/hooks.json)")
     hook = sub.add_parser("hook", help="Hook entry point called by the agent (reads JSON on stdin)")
-    hook.add_argument("target", choices=["claude"])
+    hook.add_argument("target", choices=HOOK_TARGETS)
     hook.add_argument("event", choices=["session-start", "stop"])
     sub.add_parser("cost", help="Report tracked and unknown provider costs")
     sub.add_parser("demo", help="Run a truthful, synthetic demo with real local checks")
@@ -116,19 +115,22 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "hook":
             # Never break the agent session because of V/COMMAND: report and exit 0.
             try:
-                return run_claude_hook(args.event, sys.stdin, sys.stdout, sys.stderr)
+                return run_hook(args.target, args.event, sys.stdin, sys.stdout, sys.stderr)
             except Exception as error:  # noqa: BLE001 - hooks must fail open
                 print(f"V/  hook error: {type(error).__name__}: {error}", file=sys.stderr)
                 return 0
         if args.command == "hooks":
             settings = Path(args.settings) if args.settings else None
+            name = {"claude": "Claude Code", "codex": "Codex"}[args.target]
             if args.action == "install":
-                path, changed = install_claude_hooks(root, settings)
-                print(f"V/  Claude Code hooks {'added: ' + ', '.join(changed) if changed else 'already installed'} ({path})")
-                print("V/  SessionStart injects the context frame; Stop runs your checks before Claude may finish.")
-                print("V/  Requires `vcmd` on PATH for Claude Code. Remove with: vcmd hooks uninstall claude")
+                path, changed = install_hooks(root, args.target, settings)
+                print(f"V/  {name} hooks {'added: ' + ', '.join(changed) if changed else 'already installed'} ({path})")
+                print(f"V/  SessionStart injects the context frame; Stop runs your checks before {name} may finish.")
+                print(f"V/  Requires `vcmd` on PATH for {name}. Remove with: vcmd hooks uninstall {args.target}")
+                if args.target == "codex":
+                    print("V/  Codex runs project hooks only after you trust them: open `codex`, run /hooks, trust both.")
             else:
-                path, changed = uninstall_claude_hooks(root, settings)
+                path, changed = uninstall_hooks(root, args.target, settings)
                 print(f"V/  Removed: {', '.join(changed)} ({path})" if changed else "V/  No V/COMMAND hooks found")
             return 0
         cfg = load_config(root)

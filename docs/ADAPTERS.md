@@ -3,7 +3,18 @@
 Adapters move the [context frame](EXECUTION_KERNEL.md) into coding agents and run the acceptance
 gates on their work, without copying chat history and without storing prompts or agent output.
 
-## Claude Code — hooks (interactive sessions)
+## Claude Code and Codex CLI — hooks (interactive sessions)
+
+Both agents use the same hook protocol, so V/COMMAND supports both with the same handlers.
+
+| | Claude Code | Codex CLI |
+|---|---|---|
+| Install | `vcmd hooks install claude` | `vcmd hooks install codex` |
+| File | `.claude/settings.json` | `.codex/hooks.json` |
+| Extra step | none | open `codex`, run `/hooks`, trust both V/COMMAND hooks (Codex skips untrusted project hooks) |
+| Stop limit setting | `claude_max_stop_blocks` | `codex_max_stop_blocks` |
+
+### Claude Code example
 
 ```bash
 vcmd init
@@ -22,12 +33,12 @@ Settings:
 
 ```json
 // .vcommand/config.json
-{ "hooks": { "claude_max_stop_blocks": 3 } }
+{ "hooks": { "claude_max_stop_blocks": 3, "codex_max_stop_blocks": 3 } }
 ```
 
-The hook commands are `vcmd hook claude session-start` and `vcmd hook claude stop`; `vcmd` must be on
-the `PATH` that Claude Code sees. Hooks fail open: an internal error is printed to stderr and never
-breaks the agent session. Remove with `vcmd hooks uninstall claude`.
+The hook commands are `vcmd hook <claude|codex> session-start` and `vcmd hook <claude|codex> stop`;
+`vcmd` must be on the agent's `PATH`. Hooks fail open: an internal error is printed to stderr and never
+breaks the agent session. Remove with `vcmd hooks uninstall claude` / `vcmd hooks uninstall codex`.
 
 Verified live with Claude Code 2.1.x: an agent told only to reply "hi" was blocked at Stop by a
 failing gate, created the missing file from the block reason, and the second Stop passed
@@ -64,20 +75,23 @@ Defaults (override or add agents in `.vcommand/config.json`; `{prompt}` is requi
 ```json
 {
   "agents": {
-    "codex":  ["codex", "exec", "--full-auto", "{prompt}"],
+    "codex":  ["codex", "exec", "--sandbox", "workspace-write", "{prompt}"],
     "claude": ["claude", "-p", "--permission-mode", "acceptEdits", "{prompt}"],
     "cheap":  ["claude", "-p", "--model", "haiku", "--permission-mode", "acceptEdits", "{prompt}"]
   }
 }
 ```
 
-The `codex` default has not yet been run against a live Codex CLI in this project; flags differ
-between Codex versions — adjust the template if `codex exec --help` shows other sandbox options.
+The `codex` template is checked against codex-cli 0.166 (`--full-auto` no longer exists there; use
+`--sandbox workspace-write`). If your version differs, compare with `codex exec --help`.
 Permission flags decide what the agent may do unattended; choose them deliberately.
+
+Verified live: `vcmd agent codex claude` with Codex not logged in — Codex exited 1, the gate failed
+and was recorded, the frame got a new continuity token, Claude received it, fixed the task and the
+gate passed. A provider outage, quota or login problem becomes a handoff instead of a dead end.
 
 ## Not yet
 
-- Codex hooks (only the wrapper is supported).
 - OpenCode adapter.
 - Cost per attempt from provider receipts (cost remains `unknown`).
 - Worktree isolation per attempt.

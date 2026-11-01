@@ -10,7 +10,8 @@ import unittest
 from vcommand.core import init_project, load_config, save_config, list_evidence
 from vcommand.state import start_task, read_ledger
 from vcommand.adapters import (run_agents, run_claude_hook, install_claude_hooks, uninstall_claude_hooks,
-                               agent_templates, CLAUDE_HOOK_COMMANDS)
+                               agent_templates, CLAUDE_HOOK_COMMANDS, run_hook, install_hooks,
+                               uninstall_hooks, DEFAULT_AGENTS)
 from vcommand.cli import main
 
 # "bad" ignores the task. "good" fixes it only if the prompt carries bad's failure from the ledger.
@@ -156,6 +157,26 @@ class ClaudeHookTests(unittest.TestCase):
         _, removed = uninstall_claude_hooks(self.root)
         self.assertEqual(sorted(removed), ["SessionStart", "Stop"])
         self.assertEqual(json.loads(settings.read_text()), existing)
+
+    def test_codex_hooks_file_and_stop_protocol(self):
+        path, added = install_hooks(self.root, "codex")
+        self.assertEqual(path, self.root / ".codex" / "hooks.json")
+        data = json.loads(path.read_text())
+        self.assertEqual(data["hooks"]["Stop"][0]["hooks"][0]["command"], "vcmd hook codex stop")
+        self.assertEqual(data["hooks"]["SessionStart"][0]["hooks"][0]["command"], "vcmd hook codex session-start")
+        self.set_gate(False)
+        out = io.StringIO()
+        run_hook("codex", "stop", io.StringIO(json.dumps({"cwd": str(self.root), "session_id": "c1",
+                                                          "stop_hook_active": False})), out, io.StringIO())
+        self.assertEqual(json.loads(out.getvalue())["decision"], "block")
+        self.assertEqual(read_ledger(self.root)[-1]["agent"], "codex")
+        _, removed = uninstall_hooks(self.root, "codex")
+        self.assertEqual(sorted(removed), ["SessionStart", "Stop"])
+
+    def test_codex_template_uses_supported_flags(self):
+        # `--full-auto` was removed from `codex exec` (verified against codex-cli 0.166).
+        self.assertNotIn("--full-auto", DEFAULT_AGENTS["codex"])
+        self.assertEqual(DEFAULT_AGENTS["codex"][:4], ["codex", "exec", "--sandbox", "workspace-write"])
 
     def test_cli_hook_fails_open_on_bad_input(self):
         cwd = os.getcwd()
