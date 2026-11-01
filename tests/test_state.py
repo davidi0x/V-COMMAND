@@ -92,23 +92,25 @@ class StateTests(unittest.TestCase):
 
 class StateCLITests(unittest.TestCase):
     def test_cli_handoff_flow(self):
-        with tempfile.TemporaryDirectory() as temp:
-            cwd = os.getcwd()
-            os.chdir(temp)
-            self.addCleanup(os.chdir, cwd)
-            quiet = contextlib.redirect_stdout(io.StringIO())
-            with quiet:
-                self.assertEqual(main(["init"]), 0)
-                self.assertEqual(main(["check", "add", "--", sys.executable, "-c", "raise SystemExit(1)"]), 0)
-                self.assertEqual(main(["task", "start", "Ship feature"]), 0)
-                self.assertEqual(main(["run", "--agent", "model-a", "--note", "approach A", "--",
-                                       sys.executable, "-c", "pass"]), 1)
-                self.assertEqual(main(["frame", "--json", "--out", "frame.json"]), 0)
-            frame = json.loads(Path(temp, "frame.json").read_text(encoding="utf-8"))
-            self.assertEqual(frame["task"]["goal"], "Ship feature")
-            self.assertEqual(frame["negative_knowledge"][0]["tried"], "approach A")
-            self.assertEqual(frame["negative_knowledge"][0]["agent"], "model-a")
-            self.assertEqual(frame["last_run"]["status"], "failed_verification")
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)  # registered first, runs last: after chdir back (Windows)
+        temp = temp_dir.name
+        cwd = os.getcwd()
+        os.chdir(temp)
+        self.addCleanup(os.chdir, cwd)
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        with quiet:
+            self.assertEqual(main(["init"]), 0)
+            self.assertEqual(main(["check", "add", "--", sys.executable, "-c", "raise SystemExit(1)"]), 0)
+            self.assertEqual(main(["task", "start", "Ship feature"]), 0)
+            self.assertEqual(main(["run", "--agent", "model-a", "--note", "approach A", "--",
+                                   sys.executable, "-c", "pass"]), 1)
+            self.assertEqual(main(["frame", "--json", "--out", "frame.json"]), 0)
+        frame = json.loads(Path(temp, "frame.json").read_text(encoding="utf-8"))
+        self.assertEqual(frame["task"]["goal"], "Ship feature")
+        self.assertEqual(frame["negative_knowledge"][0]["tried"], "approach A")
+        self.assertEqual(frame["negative_knowledge"][0]["agent"], "model-a")
+        self.assertEqual(frame["last_run"]["status"], "failed_verification")
 
 
 if __name__ == "__main__":
