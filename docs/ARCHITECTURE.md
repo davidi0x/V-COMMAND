@@ -27,7 +27,7 @@ A successful command without configured checks is **unverified**, never "passed"
 ```json
 {
   "schema_version": 1,
-  "id": "20261101T220000Z-a1b2c3d4",
+  "id": "20261101T220000123456Z-a1b2c3d4",
   "created_at_utc": "2026-11-01T22:00:00+00:00",
   "mode": "balanced",
   "demo": false,

@@ -35,6 +35,7 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Model-independent task state:** `vcmd task` keeps the goal, completed steps and next step on disk, outside any chat session.
 - **Negative knowledge ledger:** failed runs are recorded automatically (`vcmd run --agent … --note …`), so the next agent is told what already failed. Command output is never stored.
 - **Context frame handoff:** `vcmd frame` compiles goal, progress, hard constraints, acceptance gates and repo state into a compact prompt (or `--json`) for *any* agent or model, with a continuity token.
+- **Agent adapters:** `vcmd hooks install claude` injects the frame into every Claude Code session (start, resume, `/clear`, compaction) and blocks Claude from finishing while your checks fail. `vcmd agent codex claude` runs agents non-interactively and hands the task to the next one when gates fail.
 - No API dependency, no background daemon, no telemetry, no cloud account.
 - Python 3.10+, Windows/macOS/Linux intended; tested in CI matrix.
 
@@ -65,6 +66,15 @@ vcmd ledger add --tried "reorder session middleware" --why "session.spec race" -
 vcmd frame --out handoff.md     # give this to model B, from any provider
 ```
 
+### Let agents pick it up automatically
+
+```bash
+vcmd hooks install claude      # Claude Code: frame at session start, checks at Stop
+vcmd agent codex claude        # Codex first; on failed gates hand off to Claude
+```
+
+Details: [docs/ADAPTERS.md](docs/ADAPTERS.md).
+
 `.vcommand/task.json` and `.vcommand/ledger.jsonl` are plain files: commit them to share project memory with your team, or keep them ignored.
 
 **Note:** The example shows an actual Python command, not an LLM integration. Replace it with your existing trusted agent command (e.g. any executable available in PATH). Commands are executed with *your* current OS permissions. Do not run untrusted tools.
@@ -88,7 +98,9 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | Configurable post-run checks | Implemented |
 | Local Evidence Report | Implemented |
 | Git status before/after (not causal attribution) | Implemented |
-| Live agent session adapters | Planned |
+| Claude Code hooks (frame injection, gate at Stop) | Implemented |
+| Non-interactive agent wrapper with handoff (Codex CLI, `claude -p`, custom) | Implemented |
+| OpenCode adapter, Codex hooks | Planned |
 | Manual cross-agent handoff (context frame + ledger) | Implemented |
 | AST/dependency slice in the frame | Planned |
 | Automatic model routing / failover | Planned |
@@ -110,6 +122,7 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 
 - [Full product concept (Polish)](docs/CONCEPT_PL.md)
 - [Architecture and evidence contract](docs/ARCHITECTURE.md)
+- [Agent adapters (Claude Code, Codex CLI)](docs/ADAPTERS.md)
 - [Execution Kernel: stateless models, context frames, roadmap](docs/EXECUTION_KERNEL.md)
 - [MVP acceptance criteria](docs/MVP.md)
 - [Milestones and GitHub issues](docs/ROADMAP.md)

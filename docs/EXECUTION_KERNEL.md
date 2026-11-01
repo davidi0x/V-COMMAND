@@ -14,7 +14,8 @@ claims must be measured before they appear in the README.
 | Negative Knowledge Ledger | `.vcommand/ledger.jsonl` — append-only failed approaches. Filled automatically when `vcmd run` fails (`--agent`, `--note`) and manually with `vcmd ledger add` |
 | Context Frame | `vcmd frame` (Markdown prompt) / `vcmd frame --json` — goal, done steps, next step, hard constraints, acceptance gates, last run, HEAD and working tree |
 | Continuity token | SHA-256 over the frame's stable content; same state ⇒ same token, any change ⇒ new token |
-| Deterministic gate as the only judge | Already the core rule: configured checks decide, never the agent's own report |
+| Deterministic gate as the only judge | Already the core rule: configured checks decide, never the agent's own report (in `vcmd agent`, not even its exit code) |
+| Automatic frame in / ledger out | Claude Code hooks and `vcmd agent` wrapper — see [ADAPTERS.md](ADAPTERS.md) |
 
 Handoff between agents today:
 
@@ -35,7 +36,6 @@ risk); a failure is described by which gate failed and the human/agent-supplied 
 |---|---|---|
 | AST slice + blast radius (tree-sitter / LSP) in the frame | Phase 2 | Language-specific; start with TypeScript, measure frame size vs. quality |
 | Isolated sandboxes (`git worktree` pool) for runs and checks | Phase 2 | Safe cleanup, Windows symlink limits for `node_modules` |
-| Agent adapters that feed the frame in and ledger out automatically | Phase 2 | Official hooks / non-interactive modes of Codex CLI, Claude Code, OpenCode |
 | Pre-flight hints learned from the ledger ("in this repo, changes to X usually break Y") | Phase 3 | Enough real ledger data; hints must cite counts, not invented percentages |
 | SQLite ledger with per-call telemetry (model, time, cost, gate result) | Phase 3 | Real provider receipts for cost |
 | Provider failover / circuit breaker, budget ceiling | Phase 3 | Adapter boundary; reuse LiteLLM-style routers rather than rebuild |

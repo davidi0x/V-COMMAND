@@ -13,6 +13,8 @@ from .core import (MODES, init_project, load_config, save_config, run_task,
                    read_evidence, render_evidence, list_evidence)
 from .state import (start_task, load_task, complete_step, set_next_step, clear_task,
                     add_ledger_entry, read_ledger, record_run_failure, build_frame, render_frame)
+from .adapters import (run_agents, run_claude_hook, install_claude_hooks, uninstall_claude_hooks,
+                       agent_templates)
 
 
 def tokens(args: list[str]) -> list[str]:
@@ -60,6 +62,20 @@ def make_parser() -> argparse.ArgumentParser:
     evidence = sub.add_parser("evidence", help="View evidence of a run")
     evidence.add_argument("id", nargs="?", default="last")
     evidence.add_argument("--json", action="store_true")
+    agent = sub.add_parser("agent", help="Run agents with the context frame; hand off to the next on failed gates")
+    agent.add_argument("agents", nargs="*", help="Agents in order, e.g. `codex claude` (cycled for --attempts)")
+    agent.add_argument("--attempts", type=int, help="Total attempts (default: one per listed agent)")
+    agent.add_argument("--instruction", help="Extra instruction added above the context frame")
+    agent.add_argument("--timeout", type=int, default=3600, help="Per-attempt agent timeout in seconds")
+    agent.add_argument("--check-timeout", type=int, default=600, help="Each check timeout in seconds")
+    agent.add_argument("--list", action="store_true", help="Show configured agent command templates")
+    hooks = sub.add_parser("hooks", help="Install or remove agent hooks (Claude Code)")
+    hooks.add_argument("action", choices=["install", "uninstall"])
+    hooks.add_argument("target", choices=["claude"])
+    hooks.add_argument("--settings", help="Settings file (default: .claude/settings.json in this project)")
+    hook = sub.add_parser("hook", help="Hook entry point called by the agent (reads JSON on stdin)")
+    hook.add_argument("target", choices=["claude"])
+    hook.add_argument("event", choices=["session-start", "stop"])
     sub.add_parser("cost", help="Report tracked and unknown provider costs")
     sub.add_parser("demo", help="Run a truthful, synthetic demo with real local checks")
     return p
@@ -97,6 +113,24 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "demo":
             return demo()
+        if args.command == "hook":
+            # Never break the agent session because of V/COMMAND: report and exit 0.
+            try:
+                return run_claude_hook(args.event, sys.stdin, sys.stdout, sys.stderr)
+            except Exception as error:  # noqa: BLE001 - hooks must fail open
+                print(f"V/  hook error: {type(error).__name__}: {error}", file=sys.stderr)
+                return 0
+        if args.command == "hooks":
+            settings = Path(args.settings) if args.settings else None
+            if args.action == "install":
+                path, changed = install_claude_hooks(root, settings)
+                print(f"V/  Claude Code hooks {'added: ' + ', '.join(changed) if changed else 'already installed'} ({path})")
+                print("V/  SessionStart injects the context frame; Stop runs your checks before Claude may finish.")
+                print("V/  Requires `vcmd` on PATH for Claude Code. Remove with: vcmd hooks uninstall claude")
+            else:
+                path, changed = uninstall_claude_hooks(root, settings)
+                print(f"V/  Removed: {', '.join(changed)} ({path})" if changed else "V/  No V/COMMAND hooks found")
+            return 0
         cfg = load_config(root)
         if args.command == "mode":
             if args.value:
@@ -134,6 +168,15 @@ def main(argv: list[str] | None = None) -> int:
             if entry:
                 print(f"V/  LEDGER     recorded failed approach {entry['id']} (next agents will see it in `vcmd frame`)")
             return 0 if item["status"] in {"verified_by_configured_checks", "unverified"} else 1
+        if args.command == "agent":
+            if args.list:
+                for name, argv in sorted(agent_templates(cfg).items()):
+                    print(f"{name:8} {' '.join(argv)}")
+                return 0
+            if args.timeout < 1 or args.check_timeout < 1:
+                raise ValueError("Timeout must be a positive number of seconds")
+            return run_agents(root, args.agents, attempts=args.attempts, instruction=args.instruction,
+                              timeout=args.timeout, check_timeout=args.check_timeout)
         if args.command == "task":
             if args.task_action == "start":
                 t = start_task(root, args.goal)

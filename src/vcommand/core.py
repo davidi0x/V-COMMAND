@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from typing import Any
@@ -72,12 +73,16 @@ def git_status(root: Path) -> list[str] | None:
         return None
 
 
-def execute(argv: list[str], root: Path, timeout: int) -> dict[str, Any]:
-    """Run an explicitly supplied argv directly, without a shell or output capture."""
+def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None,
+            stdin: int | None = None) -> dict[str, Any]:
+    """Run an explicitly supplied argv directly, without a shell or output capture.
+
+    `stdout` may redirect the child's stdout to another file descriptor (e.g. 2 inside
+    agent hooks, whose stdout is reserved for the hook protocol)."""
     start = time.monotonic()
     timed_out = False
     try:
-        completed = subprocess.run(argv, cwd=root, timeout=timeout, check=False)
+        completed = subprocess.run(argv, cwd=root, timeout=timeout, check=False, stdout=stdout, stdin=stdin)
         exit_code = completed.returncode
     except subprocess.TimeoutExpired:
         timed_out = True
@@ -91,27 +96,47 @@ def execute(argv: list[str], root: Path, timeout: int) -> dict[str, Any]:
 
 
 def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: int = 120,
-             demo: bool = False, agent: str | None = None) -> dict[str, Any]:
+             demo: bool = False, agent: str | None = None, record_argv: list[str] | None = None,
+             external: bool = False, log=None, child_stdout: int | None = None,
+             gates_judge: bool = False, child_stdin: int | None = None) -> dict[str, Any]:
+    """Execute `argv`, then the configured checks, and persist evidence.
+
+    external=True: the work was done elsewhere (e.g. an interactive agent session ending);
+    `argv` is only a label and nothing but the checks is executed.
+    record_argv: what to store instead of `argv` (e.g. to keep a long prompt out of evidence).
+    gates_judge=True: run the checks even when the command exits non-zero or times out (an agent's
+    exit code is a self-report); status then follows the checks. Launch errors still skip checks.
+    """
     if not argv:
         raise ValueError("Missing command")
+    log = log or sys.stdout
     cfg = load_config(root)
     before = git_status(root)
-    task_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    # Microseconds keep IDs (and therefore `sorted(runs/*.json)`) in execution order within one second.
+    task_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex[:8]
     started_at = utc_now()
-    print(f"\nV/  EXECUTE    {' '.join(argv)}", flush=True)
-    action = execute(argv, root, timeout)
-    checks: list[dict[str, Any]] = []
-    if action["passed"]:
-        for check_argv in cfg["checks"]:
-            print(f"V/  VERIFY     {' '.join(check_argv)}", flush=True)
-            checks.append(execute(check_argv, root, check_timeout))
+    shown = record_argv or argv
+    if external:
+        print(f"\nV/  SESSION    {' '.join(shown)}", file=log, flush=True)
+        action = {"argv": list(shown), "external": True, "exit_code": None, "duration_ms": None,
+                  "timed_out": False, "passed": True}
     else:
-        print("V/  CHECKS     skipped: execution failed", flush=True)
+        print(f"\nV/  EXECUTE    {' '.join(shown)}", file=log, flush=True)
+        action = execute(argv, root, timeout, stdout=child_stdout, stdin=child_stdin)
+        action["argv"] = list(shown)
+    checks: list[dict[str, Any]] = []
+    run_checks = action["passed"] or (gates_judge and "error_type" not in action)
+    if run_checks:
+        for check_argv in cfg["checks"]:
+            print(f"V/  VERIFY     {' '.join(check_argv)}", file=log, flush=True)
+            checks.append(execute(check_argv, root, check_timeout, stdout=child_stdout))
+    else:
+        print("V/  CHECKS     skipped: execution failed", file=log, flush=True)
     # No checks -> unverified, even when action exit code is 0.
-    if not action["passed"]:
+    if not run_checks:
         status = "failed"
     elif not checks:
-        status = "unverified"
+        status = "unverified" if action["passed"] else "failed"
     elif all(check["passed"] for check in checks):
         status = "verified_by_configured_checks"
     else:
@@ -164,8 +189,10 @@ def render_evidence(item: dict[str, Any]) -> str:
         "", "V/  EVIDENCE", "-" * 56,
         f"Run       {item['id']}", f"Status    {item['status']}", f"Mode      {item['mode']}",
         f"Command   {' '.join(item['action']['argv'])}",
-        *([f"Agent     {item['agent']}"] if item.get("agent") else []), f"Exit code {item['action']['exit_code']}",
-        f"Duration  {item['action']['duration_ms']} ms", f"Checks    {passed}/{total} passed" if total else "Checks    not configured",
+        *([f"Agent     {item['agent']}"] if item.get("agent") else []),
+        *(["Session   external (work not executed by V/COMMAND; only checks were)"] if item["action"].get("external")
+          else [f"Exit code {item['action']['exit_code']}", f"Duration  {item['action']['duration_ms']} ms"]),
+        f"Checks    {passed}/{total} passed" if total else "Checks    not configured",
     ]
     for idx, c in enumerate(checks, 1):
         lines.append(f"  {idx}. {'PASS' if c['passed'] else 'FAIL'}  {' '.join(c['argv'])} ({c['duration_ms']} ms)")
