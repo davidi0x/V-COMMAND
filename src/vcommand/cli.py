@@ -90,6 +90,10 @@ def make_parser() -> argparse.ArgumentParser:
     bench.add_argument("--task", action="append", help="Only these task ids (repeatable)")
     bench.add_argument("--timeout", type=int, default=1800)
     bench.add_argument("--out", help="Results directory (default .vcommand/bench/<run>)")
+    bench.add_argument("--handoff", action="append", default=[],
+                       help="A>B: A tries first (plain); on failure B continues with plain vs frame briefing")
+    bench.add_argument("--jobs", type=int, default=1, help="Runs in parallel")
+    bench.add_argument("--limit", type=int, help="Only the first N tasks")
     hooks = sub.add_parser("hooks", help="Install or remove agent hooks (Claude Code, Codex CLI)")
     hooks.add_argument("action", choices=["install", "uninstall"])
     hooks.add_argument("target", choices=HOOK_TARGETS)
@@ -205,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--repeats and --timeout must be positive")
             summary = run_bench(Path(args.suite), args.arm, repeats=args.repeats, timeout=args.timeout,
                                 out_dir=Path(args.out) if args.out else None, project_root=root,
-                                tasks_filter=args.task)
+                                tasks_filter=args.task, jobs=args.jobs, handoffs=args.handoff, limit=args.limit)
             from .bench import render_report
             print("\n" + render_report(summary))
             print(f"V/  Results: {summary['dir']}")

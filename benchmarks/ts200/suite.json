@@ -1,0 +1,3607 @@
+{
+ "name": "ts200",
+ "description": "200 generated TypeScript bug-fix tasks: 20 bug families x 10 domains. The bug is in a helper; the goal describes the symptom at the service. See scripts/gen_ts_suite.py.",
+ "requires": "node >= 22.6 (type stripping)",
+ "tasks": [
+  {
+   "id": "01-line-total-orders",
+   "dir": "01-line-total-orders",
+   "goal": "Order totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/orders/service.ts:ordersTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-orders"
+  },
+  {
+   "id": "01-line-total-invoices",
+   "dir": "01-line-total-invoices",
+   "goal": "Invoice totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/invoices/service.ts:invoicesTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-invoices"
+  },
+  {
+   "id": "01-line-total-tickets",
+   "dir": "01-line-total-tickets",
+   "goal": "Ticket totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/tickets/service.ts:ticketsTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-tickets"
+  },
+  {
+   "id": "01-line-total-payments",
+   "dir": "01-line-total-payments",
+   "goal": "Payment totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/payments/service.ts:paymentsTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-payments"
+  },
+  {
+   "id": "01-line-total-shipments",
+   "dir": "01-line-total-shipments",
+   "goal": "Shipment totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/shipments/service.ts:shipmentsTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-shipments"
+  },
+  {
+   "id": "01-line-total-products",
+   "dir": "01-line-total-products",
+   "goal": "Product totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/products/service.ts:productsTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-products"
+  },
+  {
+   "id": "01-line-total-sessions",
+   "dir": "01-line-total-sessions",
+   "goal": "Session totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/sessions/service.ts:sessionsTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-sessions"
+  },
+  {
+   "id": "01-line-total-reports",
+   "dir": "01-line-total-reports",
+   "goal": "Report totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/reports/service.ts:reportsTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-reports"
+  },
+  {
+   "id": "01-line-total-coupons",
+   "dir": "01-line-total-coupons",
+   "goal": "Coupon totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/coupons/service.ts:couponsTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-coupons"
+  },
+  {
+   "id": "01-line-total-members",
+   "dir": "01-line-total-members",
+   "goal": "Member totals are too low when a line has quantity above 1.",
+   "family": "line_total",
+   "focus": [
+    "src/members/service.ts:membersTotal"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/01-line-total-members"
+  },
+  {
+   "id": "02-retry-orders",
+   "dir": "02-retry-orders",
+   "goal": "fetchOrder gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/orders/service.ts:fetchOrder"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-orders"
+  },
+  {
+   "id": "02-retry-invoices",
+   "dir": "02-retry-invoices",
+   "goal": "fetchInvoice gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/invoices/service.ts:fetchInvoice"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-invoices"
+  },
+  {
+   "id": "02-retry-tickets",
+   "dir": "02-retry-tickets",
+   "goal": "fetchTicket gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/tickets/service.ts:fetchTicket"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-tickets"
+  },
+  {
+   "id": "02-retry-payments",
+   "dir": "02-retry-payments",
+   "goal": "fetchPayment gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/payments/service.ts:fetchPayment"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-payments"
+  },
+  {
+   "id": "02-retry-shipments",
+   "dir": "02-retry-shipments",
+   "goal": "fetchShipment gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/shipments/service.ts:fetchShipment"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-shipments"
+  },
+  {
+   "id": "02-retry-products",
+   "dir": "02-retry-products",
+   "goal": "fetchProduct gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/products/service.ts:fetchProduct"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-products"
+  },
+  {
+   "id": "02-retry-sessions",
+   "dir": "02-retry-sessions",
+   "goal": "fetchSession gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/sessions/service.ts:fetchSession"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-sessions"
+  },
+  {
+   "id": "02-retry-reports",
+   "dir": "02-retry-reports",
+   "goal": "fetchReport gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/reports/service.ts:fetchReport"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-reports"
+  },
+  {
+   "id": "02-retry-coupons",
+   "dir": "02-retry-coupons",
+   "goal": "fetchCoupon gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/coupons/service.ts:fetchCoupon"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-coupons"
+  },
+  {
+   "id": "02-retry-members",
+   "dir": "02-retry-members",
+   "goal": "fetchMember gives up one attempt too early on flaky loads.",
+   "family": "retry",
+   "focus": [
+    "src/members/service.ts:fetchMember"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/02-retry-members"
+  },
+  {
+   "id": "03-paginate-orders",
+   "dir": "03-paginate-orders",
+   "goal": "listOrders skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/orders/service.ts:listOrders"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-orders"
+  },
+  {
+   "id": "03-paginate-invoices",
+   "dir": "03-paginate-invoices",
+   "goal": "listInvoices skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/invoices/service.ts:listInvoices"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-invoices"
+  },
+  {
+   "id": "03-paginate-tickets",
+   "dir": "03-paginate-tickets",
+   "goal": "listTickets skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/tickets/service.ts:listTickets"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-tickets"
+  },
+  {
+   "id": "03-paginate-payments",
+   "dir": "03-paginate-payments",
+   "goal": "listPayments skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/payments/service.ts:listPayments"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-payments"
+  },
+  {
+   "id": "03-paginate-shipments",
+   "dir": "03-paginate-shipments",
+   "goal": "listShipments skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/shipments/service.ts:listShipments"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-shipments"
+  },
+  {
+   "id": "03-paginate-products",
+   "dir": "03-paginate-products",
+   "goal": "listProducts skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/products/service.ts:listProducts"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-products"
+  },
+  {
+   "id": "03-paginate-sessions",
+   "dir": "03-paginate-sessions",
+   "goal": "listSessions skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/sessions/service.ts:listSessions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-sessions"
+  },
+  {
+   "id": "03-paginate-reports",
+   "dir": "03-paginate-reports",
+   "goal": "listReports skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/reports/service.ts:listReports"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-reports"
+  },
+  {
+   "id": "03-paginate-coupons",
+   "dir": "03-paginate-coupons",
+   "goal": "listCoupons skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/coupons/service.ts:listCoupons"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-coupons"
+  },
+  {
+   "id": "03-paginate-members",
+   "dir": "03-paginate-members",
+   "goal": "listMembers skips the first page of results (pages are 1-based).",
+   "family": "paginate",
+   "focus": [
+    "src/members/service.ts:listMembers"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/03-paginate-members"
+  },
+  {
+   "id": "04-clamp-orders",
+   "dir": "04-clamp-orders",
+   "goal": "ordersPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/orders/service.ts:ordersPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-orders"
+  },
+  {
+   "id": "04-clamp-invoices",
+   "dir": "04-clamp-invoices",
+   "goal": "invoicesPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/invoices/service.ts:invoicesPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-invoices"
+  },
+  {
+   "id": "04-clamp-tickets",
+   "dir": "04-clamp-tickets",
+   "goal": "ticketsPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/tickets/service.ts:ticketsPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-tickets"
+  },
+  {
+   "id": "04-clamp-payments",
+   "dir": "04-clamp-payments",
+   "goal": "paymentsPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/payments/service.ts:paymentsPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-payments"
+  },
+  {
+   "id": "04-clamp-shipments",
+   "dir": "04-clamp-shipments",
+   "goal": "shipmentsPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/shipments/service.ts:shipmentsPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-shipments"
+  },
+  {
+   "id": "04-clamp-products",
+   "dir": "04-clamp-products",
+   "goal": "productsPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/products/service.ts:productsPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-products"
+  },
+  {
+   "id": "04-clamp-sessions",
+   "dir": "04-clamp-sessions",
+   "goal": "sessionsPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/sessions/service.ts:sessionsPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-sessions"
+  },
+  {
+   "id": "04-clamp-reports",
+   "dir": "04-clamp-reports",
+   "goal": "reportsPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/reports/service.ts:reportsPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-reports"
+  },
+  {
+   "id": "04-clamp-coupons",
+   "dir": "04-clamp-coupons",
+   "goal": "couponsPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/coupons/service.ts:couponsPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-coupons"
+  },
+  {
+   "id": "04-clamp-members",
+   "dir": "04-clamp-members",
+   "goal": "membersPriority returns the upper bound even for values inside the range.",
+   "family": "clamp",
+   "focus": [
+    "src/members/service.ts:membersPriority"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/04-clamp-members"
+  },
+  {
+   "id": "05-slug-orders",
+   "dir": "05-slug-orders",
+   "goal": "ordersUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/orders/service.ts:ordersUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-orders"
+  },
+  {
+   "id": "05-slug-invoices",
+   "dir": "05-slug-invoices",
+   "goal": "invoicesUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/invoices/service.ts:invoicesUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-invoices"
+  },
+  {
+   "id": "05-slug-tickets",
+   "dir": "05-slug-tickets",
+   "goal": "ticketsUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/tickets/service.ts:ticketsUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-tickets"
+  },
+  {
+   "id": "05-slug-payments",
+   "dir": "05-slug-payments",
+   "goal": "paymentsUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/payments/service.ts:paymentsUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-payments"
+  },
+  {
+   "id": "05-slug-shipments",
+   "dir": "05-slug-shipments",
+   "goal": "shipmentsUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/shipments/service.ts:shipmentsUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-shipments"
+  },
+  {
+   "id": "05-slug-products",
+   "dir": "05-slug-products",
+   "goal": "productsUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/products/service.ts:productsUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-products"
+  },
+  {
+   "id": "05-slug-sessions",
+   "dir": "05-slug-sessions",
+   "goal": "sessionsUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/sessions/service.ts:sessionsUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-sessions"
+  },
+  {
+   "id": "05-slug-reports",
+   "dir": "05-slug-reports",
+   "goal": "reportsUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/reports/service.ts:reportsUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-reports"
+  },
+  {
+   "id": "05-slug-coupons",
+   "dir": "05-slug-coupons",
+   "goal": "couponsUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/coupons/service.ts:couponsUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-coupons"
+  },
+  {
+   "id": "05-slug-members",
+   "dir": "05-slug-members",
+   "goal": "membersUrl keeps uppercase letters; URLs must be lowercase.",
+   "family": "slug",
+   "focus": [
+    "src/members/service.ts:membersUrl"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/05-slug-members"
+  },
+  {
+   "id": "06-seconds-orders",
+   "dir": "06-seconds-orders",
+   "goal": "ordersAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/orders/service.ts:ordersAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-orders"
+  },
+  {
+   "id": "06-seconds-invoices",
+   "dir": "06-seconds-invoices",
+   "goal": "invoicesAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/invoices/service.ts:invoicesAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-invoices"
+  },
+  {
+   "id": "06-seconds-tickets",
+   "dir": "06-seconds-tickets",
+   "goal": "ticketsAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/tickets/service.ts:ticketsAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-tickets"
+  },
+  {
+   "id": "06-seconds-payments",
+   "dir": "06-seconds-payments",
+   "goal": "paymentsAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/payments/service.ts:paymentsAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-payments"
+  },
+  {
+   "id": "06-seconds-shipments",
+   "dir": "06-seconds-shipments",
+   "goal": "shipmentsAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/shipments/service.ts:shipmentsAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-shipments"
+  },
+  {
+   "id": "06-seconds-products",
+   "dir": "06-seconds-products",
+   "goal": "productsAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/products/service.ts:productsAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-products"
+  },
+  {
+   "id": "06-seconds-sessions",
+   "dir": "06-seconds-sessions",
+   "goal": "sessionsAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/sessions/service.ts:sessionsAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-sessions"
+  },
+  {
+   "id": "06-seconds-reports",
+   "dir": "06-seconds-reports",
+   "goal": "reportsAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/reports/service.ts:reportsAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-reports"
+  },
+  {
+   "id": "06-seconds-coupons",
+   "dir": "06-seconds-coupons",
+   "goal": "couponsAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/coupons/service.ts:couponsAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-coupons"
+  },
+  {
+   "id": "06-seconds-members",
+   "dir": "06-seconds-members",
+   "goal": "membersAgeSeconds reports ages ten times too large.",
+   "family": "seconds",
+   "focus": [
+    "src/members/service.ts:membersAgeSeconds"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/06-seconds-members"
+  },
+  {
+   "id": "07-sort-orders",
+   "dir": "07-sort-orders",
+   "goal": "recentOrders lists the oldest orders first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/orders/service.ts:recentOrders"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-orders"
+  },
+  {
+   "id": "07-sort-invoices",
+   "dir": "07-sort-invoices",
+   "goal": "recentInvoices lists the oldest invoices first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/invoices/service.ts:recentInvoices"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-invoices"
+  },
+  {
+   "id": "07-sort-tickets",
+   "dir": "07-sort-tickets",
+   "goal": "recentTickets lists the oldest tickets first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/tickets/service.ts:recentTickets"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-tickets"
+  },
+  {
+   "id": "07-sort-payments",
+   "dir": "07-sort-payments",
+   "goal": "recentPayments lists the oldest payments first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/payments/service.ts:recentPayments"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-payments"
+  },
+  {
+   "id": "07-sort-shipments",
+   "dir": "07-sort-shipments",
+   "goal": "recentShipments lists the oldest shipments first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/shipments/service.ts:recentShipments"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-shipments"
+  },
+  {
+   "id": "07-sort-products",
+   "dir": "07-sort-products",
+   "goal": "recentProducts lists the oldest products first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/products/service.ts:recentProducts"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-products"
+  },
+  {
+   "id": "07-sort-sessions",
+   "dir": "07-sort-sessions",
+   "goal": "recentSessions lists the oldest sessions first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/sessions/service.ts:recentSessions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-sessions"
+  },
+  {
+   "id": "07-sort-reports",
+   "dir": "07-sort-reports",
+   "goal": "recentReports lists the oldest reports first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/reports/service.ts:recentReports"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-reports"
+  },
+  {
+   "id": "07-sort-coupons",
+   "dir": "07-sort-coupons",
+   "goal": "recentCoupons lists the oldest coupons first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/coupons/service.ts:recentCoupons"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-coupons"
+  },
+  {
+   "id": "07-sort-members",
+   "dir": "07-sort-members",
+   "goal": "recentMembers lists the oldest members first; it must list the newest first.",
+   "family": "sort",
+   "focus": [
+    "src/members/service.ts:recentMembers"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/07-sort-members"
+  },
+  {
+   "id": "08-active-orders",
+   "dir": "08-active-orders",
+   "goal": "activeOrderCount counts inactive orders instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/orders/service.ts:activeOrderCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-orders"
+  },
+  {
+   "id": "08-active-invoices",
+   "dir": "08-active-invoices",
+   "goal": "activeInvoiceCount counts inactive invoices instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/invoices/service.ts:activeInvoiceCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-invoices"
+  },
+  {
+   "id": "08-active-tickets",
+   "dir": "08-active-tickets",
+   "goal": "activeTicketCount counts inactive tickets instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/tickets/service.ts:activeTicketCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-tickets"
+  },
+  {
+   "id": "08-active-payments",
+   "dir": "08-active-payments",
+   "goal": "activePaymentCount counts inactive payments instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/payments/service.ts:activePaymentCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-payments"
+  },
+  {
+   "id": "08-active-shipments",
+   "dir": "08-active-shipments",
+   "goal": "activeShipmentCount counts inactive shipments instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/shipments/service.ts:activeShipmentCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-shipments"
+  },
+  {
+   "id": "08-active-products",
+   "dir": "08-active-products",
+   "goal": "activeProductCount counts inactive products instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/products/service.ts:activeProductCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-products"
+  },
+  {
+   "id": "08-active-sessions",
+   "dir": "08-active-sessions",
+   "goal": "activeSessionCount counts inactive sessions instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/sessions/service.ts:activeSessionCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-sessions"
+  },
+  {
+   "id": "08-active-reports",
+   "dir": "08-active-reports",
+   "goal": "activeReportCount counts inactive reports instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/reports/service.ts:activeReportCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-reports"
+  },
+  {
+   "id": "08-active-coupons",
+   "dir": "08-active-coupons",
+   "goal": "activeCouponCount counts inactive coupons instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/coupons/service.ts:activeCouponCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-coupons"
+  },
+  {
+   "id": "08-active-members",
+   "dir": "08-active-members",
+   "goal": "activeMemberCount counts inactive members instead of active ones.",
+   "family": "active",
+   "focus": [
+    "src/members/service.ts:activeMemberCount"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/08-active-members"
+  },
+  {
+   "id": "09-default-orders",
+   "dir": "09-default-orders",
+   "goal": "ordersLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/orders/service.ts:ordersLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-orders"
+  },
+  {
+   "id": "09-default-invoices",
+   "dir": "09-default-invoices",
+   "goal": "invoicesLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/invoices/service.ts:invoicesLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-invoices"
+  },
+  {
+   "id": "09-default-tickets",
+   "dir": "09-default-tickets",
+   "goal": "ticketsLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/tickets/service.ts:ticketsLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-tickets"
+  },
+  {
+   "id": "09-default-payments",
+   "dir": "09-default-payments",
+   "goal": "paymentsLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/payments/service.ts:paymentsLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-payments"
+  },
+  {
+   "id": "09-default-shipments",
+   "dir": "09-default-shipments",
+   "goal": "shipmentsLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/shipments/service.ts:shipmentsLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-shipments"
+  },
+  {
+   "id": "09-default-products",
+   "dir": "09-default-products",
+   "goal": "productsLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/products/service.ts:productsLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-products"
+  },
+  {
+   "id": "09-default-sessions",
+   "dir": "09-default-sessions",
+   "goal": "sessionsLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/sessions/service.ts:sessionsLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-sessions"
+  },
+  {
+   "id": "09-default-reports",
+   "dir": "09-default-reports",
+   "goal": "reportsLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/reports/service.ts:reportsLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-reports"
+  },
+  {
+   "id": "09-default-coupons",
+   "dir": "09-default-coupons",
+   "goal": "couponsLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/coupons/service.ts:couponsLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-coupons"
+  },
+  {
+   "id": "09-default-members",
+   "dir": "09-default-members",
+   "goal": "membersLimit ignores an explicitly configured limit of 0.",
+   "family": "default",
+   "focus": [
+    "src/members/service.ts:membersLimit"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/09-default-members"
+  },
+  {
+   "id": "10-percent-orders",
+   "dir": "10-percent-orders",
+   "goal": "ordersProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/orders/service.ts:ordersProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-orders"
+  },
+  {
+   "id": "10-percent-invoices",
+   "dir": "10-percent-invoices",
+   "goal": "invoicesProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/invoices/service.ts:invoicesProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-invoices"
+  },
+  {
+   "id": "10-percent-tickets",
+   "dir": "10-percent-tickets",
+   "goal": "ticketsProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/tickets/service.ts:ticketsProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-tickets"
+  },
+  {
+   "id": "10-percent-payments",
+   "dir": "10-percent-payments",
+   "goal": "paymentsProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/payments/service.ts:paymentsProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-payments"
+  },
+  {
+   "id": "10-percent-shipments",
+   "dir": "10-percent-shipments",
+   "goal": "shipmentsProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/shipments/service.ts:shipmentsProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-shipments"
+  },
+  {
+   "id": "10-percent-products",
+   "dir": "10-percent-products",
+   "goal": "productsProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/products/service.ts:productsProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-products"
+  },
+  {
+   "id": "10-percent-sessions",
+   "dir": "10-percent-sessions",
+   "goal": "sessionsProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/sessions/service.ts:sessionsProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-sessions"
+  },
+  {
+   "id": "10-percent-reports",
+   "dir": "10-percent-reports",
+   "goal": "reportsProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/reports/service.ts:reportsProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-reports"
+  },
+  {
+   "id": "10-percent-coupons",
+   "dir": "10-percent-coupons",
+   "goal": "couponsProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/coupons/service.ts:couponsProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-coupons"
+  },
+  {
+   "id": "10-percent-members",
+   "dir": "10-percent-members",
+   "goal": "membersProgress truncates percentages; it must round to the nearest integer.",
+   "family": "percent",
+   "focus": [
+    "src/members/service.ts:membersProgress"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/10-percent-members"
+  },
+  {
+   "id": "11-dedupe-orders",
+   "dir": "11-dedupe-orders",
+   "goal": "firstOrderVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/orders/service.ts:firstOrderVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-orders"
+  },
+  {
+   "id": "11-dedupe-invoices",
+   "dir": "11-dedupe-invoices",
+   "goal": "firstInvoiceVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/invoices/service.ts:firstInvoiceVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-invoices"
+  },
+  {
+   "id": "11-dedupe-tickets",
+   "dir": "11-dedupe-tickets",
+   "goal": "firstTicketVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/tickets/service.ts:firstTicketVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-tickets"
+  },
+  {
+   "id": "11-dedupe-payments",
+   "dir": "11-dedupe-payments",
+   "goal": "firstPaymentVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/payments/service.ts:firstPaymentVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-payments"
+  },
+  {
+   "id": "11-dedupe-shipments",
+   "dir": "11-dedupe-shipments",
+   "goal": "firstShipmentVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/shipments/service.ts:firstShipmentVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-shipments"
+  },
+  {
+   "id": "11-dedupe-products",
+   "dir": "11-dedupe-products",
+   "goal": "firstProductVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/products/service.ts:firstProductVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-products"
+  },
+  {
+   "id": "11-dedupe-sessions",
+   "dir": "11-dedupe-sessions",
+   "goal": "firstSessionVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/sessions/service.ts:firstSessionVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-sessions"
+  },
+  {
+   "id": "11-dedupe-reports",
+   "dir": "11-dedupe-reports",
+   "goal": "firstReportVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/reports/service.ts:firstReportVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-reports"
+  },
+  {
+   "id": "11-dedupe-coupons",
+   "dir": "11-dedupe-coupons",
+   "goal": "firstCouponVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/coupons/service.ts:firstCouponVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-coupons"
+  },
+  {
+   "id": "11-dedupe-members",
+   "dir": "11-dedupe-members",
+   "goal": "firstMemberVersions keeps the last duplicate; it must keep the first one.",
+   "family": "dedupe",
+   "focus": [
+    "src/members/service.ts:firstMemberVersions"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/11-dedupe-members"
+  },
+  {
+   "id": "12-average-orders",
+   "dir": "12-average-orders",
+   "goal": "averageOrderValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/orders/service.ts:averageOrderValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-orders"
+  },
+  {
+   "id": "12-average-invoices",
+   "dir": "12-average-invoices",
+   "goal": "averageInvoiceValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/invoices/service.ts:averageInvoiceValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-invoices"
+  },
+  {
+   "id": "12-average-tickets",
+   "dir": "12-average-tickets",
+   "goal": "averageTicketValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/tickets/service.ts:averageTicketValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-tickets"
+  },
+  {
+   "id": "12-average-payments",
+   "dir": "12-average-payments",
+   "goal": "averagePaymentValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/payments/service.ts:averagePaymentValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-payments"
+  },
+  {
+   "id": "12-average-shipments",
+   "dir": "12-average-shipments",
+   "goal": "averageShipmentValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/shipments/service.ts:averageShipmentValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-shipments"
+  },
+  {
+   "id": "12-average-products",
+   "dir": "12-average-products",
+   "goal": "averageProductValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/products/service.ts:averageProductValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-products"
+  },
+  {
+   "id": "12-average-sessions",
+   "dir": "12-average-sessions",
+   "goal": "averageSessionValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/sessions/service.ts:averageSessionValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-sessions"
+  },
+  {
+   "id": "12-average-reports",
+   "dir": "12-average-reports",
+   "goal": "averageReportValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/reports/service.ts:averageReportValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-reports"
+  },
+  {
+   "id": "12-average-coupons",
+   "dir": "12-average-coupons",
+   "goal": "averageCouponValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/coupons/service.ts:averageCouponValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-coupons"
+  },
+  {
+   "id": "12-average-members",
+   "dir": "12-average-members",
+   "goal": "averageMemberValue returns NaN for an empty list; it must return 0.",
+   "family": "average",
+   "focus": [
+    "src/members/service.ts:averageMemberValue"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/12-average-members"
+  },
+  {
+   "id": "13-chunk-orders",
+   "dir": "13-chunk-orders",
+   "goal": "ordersBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/orders/service.ts:ordersBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-orders"
+  },
+  {
+   "id": "13-chunk-invoices",
+   "dir": "13-chunk-invoices",
+   "goal": "invoicesBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/invoices/service.ts:invoicesBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-invoices"
+  },
+  {
+   "id": "13-chunk-tickets",
+   "dir": "13-chunk-tickets",
+   "goal": "ticketsBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/tickets/service.ts:ticketsBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-tickets"
+  },
+  {
+   "id": "13-chunk-payments",
+   "dir": "13-chunk-payments",
+   "goal": "paymentsBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/payments/service.ts:paymentsBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-payments"
+  },
+  {
+   "id": "13-chunk-shipments",
+   "dir": "13-chunk-shipments",
+   "goal": "shipmentsBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/shipments/service.ts:shipmentsBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-shipments"
+  },
+  {
+   "id": "13-chunk-products",
+   "dir": "13-chunk-products",
+   "goal": "productsBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/products/service.ts:productsBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-products"
+  },
+  {
+   "id": "13-chunk-sessions",
+   "dir": "13-chunk-sessions",
+   "goal": "sessionsBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/sessions/service.ts:sessionsBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-sessions"
+  },
+  {
+   "id": "13-chunk-reports",
+   "dir": "13-chunk-reports",
+   "goal": "reportsBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/reports/service.ts:reportsBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-reports"
+  },
+  {
+   "id": "13-chunk-coupons",
+   "dir": "13-chunk-coupons",
+   "goal": "couponsBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/coupons/service.ts:couponsBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-coupons"
+  },
+  {
+   "id": "13-chunk-members",
+   "dir": "13-chunk-members",
+   "goal": "membersBatches drops the last, smaller batch.",
+   "family": "chunk",
+   "focus": [
+    "src/members/service.ts:membersBatches"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/13-chunk-members"
+  },
+  {
+   "id": "14-capitalize-orders",
+   "dir": "14-capitalize-orders",
+   "goal": "ordersHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/orders/service.ts:ordersHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-orders"
+  },
+  {
+   "id": "14-capitalize-invoices",
+   "dir": "14-capitalize-invoices",
+   "goal": "invoicesHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/invoices/service.ts:invoicesHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-invoices"
+  },
+  {
+   "id": "14-capitalize-tickets",
+   "dir": "14-capitalize-tickets",
+   "goal": "ticketsHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/tickets/service.ts:ticketsHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-tickets"
+  },
+  {
+   "id": "14-capitalize-payments",
+   "dir": "14-capitalize-payments",
+   "goal": "paymentsHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/payments/service.ts:paymentsHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-payments"
+  },
+  {
+   "id": "14-capitalize-shipments",
+   "dir": "14-capitalize-shipments",
+   "goal": "shipmentsHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/shipments/service.ts:shipmentsHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-shipments"
+  },
+  {
+   "id": "14-capitalize-products",
+   "dir": "14-capitalize-products",
+   "goal": "productsHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/products/service.ts:productsHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-products"
+  },
+  {
+   "id": "14-capitalize-sessions",
+   "dir": "14-capitalize-sessions",
+   "goal": "sessionsHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/sessions/service.ts:sessionsHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-sessions"
+  },
+  {
+   "id": "14-capitalize-reports",
+   "dir": "14-capitalize-reports",
+   "goal": "reportsHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/reports/service.ts:reportsHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-reports"
+  },
+  {
+   "id": "14-capitalize-coupons",
+   "dir": "14-capitalize-coupons",
+   "goal": "couponsHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/coupons/service.ts:couponsHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-coupons"
+  },
+  {
+   "id": "14-capitalize-members",
+   "dir": "14-capitalize-members",
+   "goal": "membersHeading leaves the first word lowercase.",
+   "family": "capitalize",
+   "focus": [
+    "src/members/service.ts:membersHeading"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/14-capitalize-members"
+  },
+  {
+   "id": "15-divide-orders",
+   "dir": "15-divide-orders",
+   "goal": "ordersConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/orders/service.ts:ordersConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-orders"
+  },
+  {
+   "id": "15-divide-invoices",
+   "dir": "15-divide-invoices",
+   "goal": "invoicesConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/invoices/service.ts:invoicesConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-invoices"
+  },
+  {
+   "id": "15-divide-tickets",
+   "dir": "15-divide-tickets",
+   "goal": "ticketsConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/tickets/service.ts:ticketsConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-tickets"
+  },
+  {
+   "id": "15-divide-payments",
+   "dir": "15-divide-payments",
+   "goal": "paymentsConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/payments/service.ts:paymentsConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-payments"
+  },
+  {
+   "id": "15-divide-shipments",
+   "dir": "15-divide-shipments",
+   "goal": "shipmentsConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/shipments/service.ts:shipmentsConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-shipments"
+  },
+  {
+   "id": "15-divide-products",
+   "dir": "15-divide-products",
+   "goal": "productsConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/products/service.ts:productsConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-products"
+  },
+  {
+   "id": "15-divide-sessions",
+   "dir": "15-divide-sessions",
+   "goal": "sessionsConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/sessions/service.ts:sessionsConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-sessions"
+  },
+  {
+   "id": "15-divide-reports",
+   "dir": "15-divide-reports",
+   "goal": "reportsConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/reports/service.ts:reportsConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-reports"
+  },
+  {
+   "id": "15-divide-coupons",
+   "dir": "15-divide-coupons",
+   "goal": "couponsConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/coupons/service.ts:couponsConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-coupons"
+  },
+  {
+   "id": "15-divide-members",
+   "dir": "15-divide-members",
+   "goal": "membersConversionRate returns Infinity when nothing was seen; it must return 0.",
+   "family": "divide",
+   "focus": [
+    "src/members/service.ts:membersConversionRate"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/15-divide-members"
+  },
+  {
+   "id": "16-range-orders",
+   "dir": "16-range-orders",
+   "goal": "ordersYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/orders/service.ts:ordersYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-orders"
+  },
+  {
+   "id": "16-range-invoices",
+   "dir": "16-range-invoices",
+   "goal": "invoicesYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/invoices/service.ts:invoicesYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-invoices"
+  },
+  {
+   "id": "16-range-tickets",
+   "dir": "16-range-tickets",
+   "goal": "ticketsYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/tickets/service.ts:ticketsYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-tickets"
+  },
+  {
+   "id": "16-range-payments",
+   "dir": "16-range-payments",
+   "goal": "paymentsYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/payments/service.ts:paymentsYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-payments"
+  },
+  {
+   "id": "16-range-shipments",
+   "dir": "16-range-shipments",
+   "goal": "shipmentsYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/shipments/service.ts:shipmentsYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-shipments"
+  },
+  {
+   "id": "16-range-products",
+   "dir": "16-range-products",
+   "goal": "productsYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/products/service.ts:productsYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-products"
+  },
+  {
+   "id": "16-range-sessions",
+   "dir": "16-range-sessions",
+   "goal": "sessionsYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/sessions/service.ts:sessionsYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-sessions"
+  },
+  {
+   "id": "16-range-reports",
+   "dir": "16-range-reports",
+   "goal": "reportsYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/reports/service.ts:reportsYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-reports"
+  },
+  {
+   "id": "16-range-coupons",
+   "dir": "16-range-coupons",
+   "goal": "couponsYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/coupons/service.ts:couponsYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-coupons"
+  },
+  {
+   "id": "16-range-members",
+   "dir": "16-range-members",
+   "goal": "membersYears misses the last year; the range must be inclusive.",
+   "family": "range",
+   "focus": [
+    "src/members/service.ts:membersYears"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/16-range-members"
+  },
+  {
+   "id": "17-group-orders",
+   "dir": "17-group-orders",
+   "goal": "ordersPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/orders/service.ts:ordersPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-orders"
+  },
+  {
+   "id": "17-group-invoices",
+   "dir": "17-group-invoices",
+   "goal": "invoicesPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/invoices/service.ts:invoicesPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-invoices"
+  },
+  {
+   "id": "17-group-tickets",
+   "dir": "17-group-tickets",
+   "goal": "ticketsPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/tickets/service.ts:ticketsPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-tickets"
+  },
+  {
+   "id": "17-group-payments",
+   "dir": "17-group-payments",
+   "goal": "paymentsPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/payments/service.ts:paymentsPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-payments"
+  },
+  {
+   "id": "17-group-shipments",
+   "dir": "17-group-shipments",
+   "goal": "shipmentsPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/shipments/service.ts:shipmentsPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-shipments"
+  },
+  {
+   "id": "17-group-products",
+   "dir": "17-group-products",
+   "goal": "productsPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/products/service.ts:productsPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-products"
+  },
+  {
+   "id": "17-group-sessions",
+   "dir": "17-group-sessions",
+   "goal": "sessionsPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/sessions/service.ts:sessionsPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-sessions"
+  },
+  {
+   "id": "17-group-reports",
+   "dir": "17-group-reports",
+   "goal": "reportsPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/reports/service.ts:reportsPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-reports"
+  },
+  {
+   "id": "17-group-coupons",
+   "dir": "17-group-coupons",
+   "goal": "couponsPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/coupons/service.ts:couponsPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-coupons"
+  },
+  {
+   "id": "17-group-members",
+   "dir": "17-group-members",
+   "goal": "membersPerCategory counts per id instead of per category.",
+   "family": "group",
+   "focus": [
+    "src/members/service.ts:membersPerCategory"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/17-group-members"
+  },
+  {
+   "id": "18-truncate-orders",
+   "dir": "18-truncate-orders",
+   "goal": "ordersPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/orders/service.ts:ordersPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-orders"
+  },
+  {
+   "id": "18-truncate-invoices",
+   "dir": "18-truncate-invoices",
+   "goal": "invoicesPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/invoices/service.ts:invoicesPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-invoices"
+  },
+  {
+   "id": "18-truncate-tickets",
+   "dir": "18-truncate-tickets",
+   "goal": "ticketsPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/tickets/service.ts:ticketsPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-tickets"
+  },
+  {
+   "id": "18-truncate-payments",
+   "dir": "18-truncate-payments",
+   "goal": "paymentsPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/payments/service.ts:paymentsPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-payments"
+  },
+  {
+   "id": "18-truncate-shipments",
+   "dir": "18-truncate-shipments",
+   "goal": "shipmentsPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/shipments/service.ts:shipmentsPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-shipments"
+  },
+  {
+   "id": "18-truncate-products",
+   "dir": "18-truncate-products",
+   "goal": "productsPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/products/service.ts:productsPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-products"
+  },
+  {
+   "id": "18-truncate-sessions",
+   "dir": "18-truncate-sessions",
+   "goal": "sessionsPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/sessions/service.ts:sessionsPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-sessions"
+  },
+  {
+   "id": "18-truncate-reports",
+   "dir": "18-truncate-reports",
+   "goal": "reportsPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/reports/service.ts:reportsPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-reports"
+  },
+  {
+   "id": "18-truncate-coupons",
+   "dir": "18-truncate-coupons",
+   "goal": "couponsPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/coupons/service.ts:couponsPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-coupons"
+  },
+  {
+   "id": "18-truncate-members",
+   "dir": "18-truncate-members",
+   "goal": "membersPreview is one character longer than the limit when it truncates.",
+   "family": "truncate",
+   "focus": [
+    "src/members/service.ts:membersPreview"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/18-truncate-members"
+  },
+  {
+   "id": "19-query-orders",
+   "dir": "19-query-orders",
+   "goal": "ordersSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/orders/service.ts:ordersSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-orders"
+  },
+  {
+   "id": "19-query-invoices",
+   "dir": "19-query-invoices",
+   "goal": "invoicesSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/invoices/service.ts:invoicesSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-invoices"
+  },
+  {
+   "id": "19-query-tickets",
+   "dir": "19-query-tickets",
+   "goal": "ticketsSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/tickets/service.ts:ticketsSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-tickets"
+  },
+  {
+   "id": "19-query-payments",
+   "dir": "19-query-payments",
+   "goal": "paymentsSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/payments/service.ts:paymentsSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-payments"
+  },
+  {
+   "id": "19-query-shipments",
+   "dir": "19-query-shipments",
+   "goal": "shipmentsSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/shipments/service.ts:shipmentsSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-shipments"
+  },
+  {
+   "id": "19-query-products",
+   "dir": "19-query-products",
+   "goal": "productsSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/products/service.ts:productsSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-products"
+  },
+  {
+   "id": "19-query-sessions",
+   "dir": "19-query-sessions",
+   "goal": "sessionsSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/sessions/service.ts:sessionsSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-sessions"
+  },
+  {
+   "id": "19-query-reports",
+   "dir": "19-query-reports",
+   "goal": "reportsSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/reports/service.ts:reportsSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-reports"
+  },
+  {
+   "id": "19-query-coupons",
+   "dir": "19-query-coupons",
+   "goal": "couponsSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/coupons/service.ts:couponsSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-coupons"
+  },
+  {
+   "id": "19-query-members",
+   "dir": "19-query-members",
+   "goal": "membersSearch returns the raw percent-encoded query instead of the decoded text.",
+   "family": "query",
+   "focus": [
+    "src/members/service.ts:membersSearch"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/19-query-members"
+  },
+  {
+   "id": "20-tax-orders",
+   "dir": "20-tax-orders",
+   "goal": "ordersGross is wrong: the 10% discount must be applied to the net price before 20% tax.",
+   "family": "tax",
+   "focus": [
+    "src/orders/service.ts:ordersGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/orders/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-orders"
+  },
+  {
+   "id": "20-tax-invoices",
+   "dir": "20-tax-invoices",
+   "goal": "invoicesGross is wrong: the 10% discount must be applied to the net price before 21% tax.",
+   "family": "tax",
+   "focus": [
+    "src/invoices/service.ts:invoicesGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/invoices/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-invoices"
+  },
+  {
+   "id": "20-tax-tickets",
+   "dir": "20-tax-tickets",
+   "goal": "ticketsGross is wrong: the 10% discount must be applied to the net price before 22% tax.",
+   "family": "tax",
+   "focus": [
+    "src/tickets/service.ts:ticketsGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/tickets/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-tickets"
+  },
+  {
+   "id": "20-tax-payments",
+   "dir": "20-tax-payments",
+   "goal": "paymentsGross is wrong: the 10% discount must be applied to the net price before 23% tax.",
+   "family": "tax",
+   "focus": [
+    "src/payments/service.ts:paymentsGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/payments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-payments"
+  },
+  {
+   "id": "20-tax-shipments",
+   "dir": "20-tax-shipments",
+   "goal": "shipmentsGross is wrong: the 10% discount must be applied to the net price before 24% tax.",
+   "family": "tax",
+   "focus": [
+    "src/shipments/service.ts:shipmentsGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/shipments/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-shipments"
+  },
+  {
+   "id": "20-tax-products",
+   "dir": "20-tax-products",
+   "goal": "productsGross is wrong: the 10% discount must be applied to the net price before 25% tax.",
+   "family": "tax",
+   "focus": [
+    "src/products/service.ts:productsGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/products/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-products"
+  },
+  {
+   "id": "20-tax-sessions",
+   "dir": "20-tax-sessions",
+   "goal": "sessionsGross is wrong: the 10% discount must be applied to the net price before 26% tax.",
+   "family": "tax",
+   "focus": [
+    "src/sessions/service.ts:sessionsGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/sessions/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-sessions"
+  },
+  {
+   "id": "20-tax-reports",
+   "dir": "20-tax-reports",
+   "goal": "reportsGross is wrong: the 10% discount must be applied to the net price before 27% tax.",
+   "family": "tax",
+   "focus": [
+    "src/reports/service.ts:reportsGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/reports/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-reports"
+  },
+  {
+   "id": "20-tax-coupons",
+   "dir": "20-tax-coupons",
+   "goal": "couponsGross is wrong: the 10% discount must be applied to the net price before 28% tax.",
+   "family": "tax",
+   "focus": [
+    "src/coupons/service.ts:couponsGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/coupons/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-coupons"
+  },
+  {
+   "id": "20-tax-members",
+   "dir": "20-tax-members",
+   "goal": "membersGross is wrong: the 10% discount must be applied to the net price before 29% tax.",
+   "family": "tax",
+   "focus": [
+    "src/members/service.ts:membersGross"
+   ],
+   "gates": [
+    [
+     "node",
+     "--experimental-strip-types",
+     "--test",
+     "src/members/service.test.ts"
+    ]
+   ],
+   "solution": "_solutions/20-tax-members"
+  }
+ ]
+}

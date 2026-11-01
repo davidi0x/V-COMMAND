@@ -1,0 +1,9 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { fetchReport } from "./service.ts";
+test("reports retries", async () => {
+  let calls = 0;
+  const v = await fetchReport(async () => { calls++; if (calls < 4) throw new Error("flaky"); return "ok"; });
+  assert.equal(v, "ok");
+  assert.equal(calls, 4);
+});

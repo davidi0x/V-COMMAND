@@ -52,6 +52,27 @@ class BenchTests(unittest.TestCase):
             self.assertTrue((Path(summary["dir"]) / "report.md").read_text().startswith("# V/COMMAND benchmark"))
             self.assertGreater(rows[1]["prompt_chars"], rows[0]["prompt_chars"])
 
+    def test_handoff_arms_share_first_attempt(self):
+        # "lazy" never fixes; "fixer" fixes only when briefed with the frame that records lazy's failure
+        lazy = "import sys"
+        fixer = ("import sys, pathlib; p = sys.argv[1]; "
+                 "pathlib.Path('calc.py').write_text('def add(a, b):\\n    return a + b\\n\\n\\ndef mul(a, b):\\n    return a * b\\n') "
+                 "if 'Hard constraints from failed attempts' in p else None")
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "proj"
+            project.mkdir()
+            init_project(project)
+            cfg = load_config(project)
+            cfg["agents"] = {"lazy": [sys.executable, "-c", lazy, "{prompt}"],
+                             "fixer": [sys.executable, "-c", fixer, "{prompt}"]}
+            save_config(project, cfg)
+            summary = run_bench(SUITE_DIR, [], handoffs=["lazy>fixer"], project_root=project, jobs=2,
+                                tasks_filter=["fix-add", "paginate"], out_dir=Path(temp) / "out", out=io.StringIO())
+            plain, frame = summary["arms"]["lazy>fixer:plain"], summary["arms"]["lazy>fixer:frame"]
+            self.assertEqual((plain["first_attempt_passed"], frame["first_attempt_passed"]), (0, 0))
+            self.assertEqual((plain["rescued"], frame["rescued"]), (0, 1))  # only fix-add is solvable by fixer
+            self.assertIn("Handoff after a failed first attempt", (Path(summary["dir"]) / "report.md").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

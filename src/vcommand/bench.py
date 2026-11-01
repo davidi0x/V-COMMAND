@@ -29,13 +29,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TextIO
 
 from .core import CONFIG_DIR, init_project, load_config, save_config, run_task
-from .state import build_frame, set_focus, start_task
-from .adapters import PROMPT_PLACEHOLDER, agent_templates, agent_env, build_prompt, resolve_agent
+from .state import build_frame, record_run_failure, set_focus, start_task
+from .adapters import PROMPT_PLACEHOLDER, agent_templates, agent_env, build_prompt, parser_context, resolve_agent
 
 ARM_KINDS = ("plain", "frame")
 PASS = "verified_by_configured_checks"
@@ -96,82 +98,146 @@ def plain_prompt(task: dict[str, Any], gates: list[list[str]]) -> str:
             + "\n".join(f"- {' '.join(g)}" for g in gates) + "\n")
 
 
-def run_one(suite: dict[str, Any], task: dict[str, Any], agent: str, kind: str, *, timeout: int,
-            check_timeout: int, templates: dict[str, Any]) -> dict[str, Any]:
-    gates = [_python_gate(g) for g in task["gates"]]
-    with tempfile.TemporaryDirectory(prefix="vcmd-bench-") as temp:
-        work = Path(temp) / "repo"
-        shutil.copytree(suite["_base"] / task["dir"], work)
-        _git(work, "init", "-q")
-        _git(work, "add", "-A")
-        _git(work, "commit", "-q", "-m", "task template")
-        init_project(work)
-        cfg = load_config(work)
-        cfg["checks"] = gates
-        save_config(work, cfg)
-        start_task(work, task["goal"])
-        if task.get("focus"):
-            set_focus(work, task["focus"])
-        if kind == "frame":
-            frame = build_frame(work)
-            prompt = build_prompt(frame)
-        else:
-            prompt = plain_prompt(task, task["gates"])
-        spec = resolve_agent(templates, agent)
-        argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
-        shown = [f"<{kind} prompt>" if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
-        start = time.monotonic()
-        item = run_task(work, argv, timeout=timeout, check_timeout=check_timeout, agent=agent, record_argv=shown,
-                        gates_judge=True, child_stdin=subprocess.DEVNULL, env=agent_env(work),
-                        cost_parser=spec.get("cost"), log=_NullLog(), child_stdout=subprocess.DEVNULL)
-        wall = time.monotonic() - start
-    return {"task": task["id"], "agent": agent, "arm": f"{agent}:{kind}", "kind": kind,
-            "passed": item["status"] == PASS, "status": item["status"], "wall_s": round(wall, 2),
-            "agent_exit": item["action"].get("exit_code"), "cost_usd": item["cost"]["amount"],
-            "cost_source": item["cost"]["source"], "prompt_chars": len(prompt)}
-
-
 class _NullLog:
     def write(self, *_: Any) -> None: ...
     def flush(self) -> None: ...
 
 
+def _setup(suite: dict[str, Any], task: dict[str, Any], dest: Path) -> list[list[str]]:
+    gates = [_python_gate(g) for g in task["gates"]]
+    shutil.copytree(suite["_base"] / task["dir"], dest)
+    _git(dest, "init", "-q")
+    _git(dest, "add", "-A")
+    _git(dest, "commit", "-q", "-m", "task template")
+    init_project(dest)
+    cfg = load_config(dest)
+    cfg["checks"] = gates
+    save_config(dest, cfg)
+    start_task(dest, task["goal"])
+    if task.get("focus"):
+        set_focus(dest, task["focus"])
+    return gates
+
+
+def _attempt(work: Path, task: dict[str, Any], agent: str, kind: str, templates: dict[str, Any], *,
+             timeout: int, check_timeout: int) -> dict[str, Any]:
+    prompt = build_prompt(build_frame(work)) if kind == "frame" else plain_prompt(task, task["gates"])
+    spec = resolve_agent(templates, agent)
+    argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
+    shown = [f"<{kind} prompt>" if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
+    start = time.monotonic()
+    item = run_task(work, argv, timeout=timeout, check_timeout=check_timeout, agent=agent, record_argv=shown,
+                    gates_judge=True, child_stdin=subprocess.DEVNULL, env=agent_env(work),
+                    cost_parser=spec.get("cost"), log=_NullLog(), child_stdout=subprocess.DEVNULL,
+                    parser_context=parser_context(work, load_config(work), spec["argv"]))
+    return {"item": item, "passed": item["status"] == PASS, "wall_s": time.monotonic() - start,
+            "cost_usd": item["cost"]["amount"], "cost_source": item["cost"]["source"], "prompt_chars": len(prompt)}
+
+
+def run_one(suite: dict[str, Any], task: dict[str, Any], agent: str, kind: str, *, timeout: int,
+            check_timeout: int, templates: dict[str, Any]) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="vcmd-bench-") as temp:
+        work = Path(temp) / "repo"
+        _setup(suite, task, work)
+        a = _attempt(work, task, agent, kind, templates, timeout=timeout, check_timeout=check_timeout)
+    return {"task": task["id"], "agent": agent, "arm": f"{agent}:{kind}", "kind": kind,
+            "passed": a["passed"], "status": a["item"]["status"], "wall_s": round(a["wall_s"], 2),
+            "agent_exit": a["item"]["action"].get("exit_code"), "cost_usd": a["cost_usd"],
+            "cost_source": a["cost_source"], "prompt_chars": a["prompt_chars"], "attempts": 1}
+
+
+def run_handoff(suite: dict[str, Any], task: dict[str, Any], first: str, second: str, *, timeout: int,
+                check_timeout: int, templates: dict[str, Any]) -> list[dict[str, Any]]:
+    """Attempt 1: `first` with the plain prompt. If it fails, the same post-failure repository state is
+    copied twice and `second` continues once with the plain prompt and once with the context frame
+    (which now carries the failed attempt in its ledger). Both arms share attempt 1."""
+    rows = []
+    with tempfile.TemporaryDirectory(prefix="vcmd-bench-") as temp:
+        work = Path(temp) / "repo"
+        _setup(suite, task, work)
+        a1 = _attempt(work, task, first, "plain", templates, timeout=timeout, check_timeout=check_timeout)
+        if not a1["passed"]:
+            record_run_failure(work, a1["item"], agent=first, note=f"{first} first attempt")
+        for kind in ARM_KINDS:
+            if a1["passed"]:
+                a2 = None
+            else:
+                branch = Path(temp) / f"repo-{kind}"
+                shutil.copytree(work, branch, symlinks=True)
+                a2 = _attempt(branch, task, second, kind, templates, timeout=timeout, check_timeout=check_timeout)
+            costs = [x["cost_usd"] for x in (a1, a2) if x is not None]
+            rows.append({"task": task["id"], "agent": f"{first}>{second}", "arm": f"{first}>{second}:{kind}",
+                         "kind": kind, "passed": a1["passed"] or bool(a2 and a2["passed"]),
+                         "first_attempt_passed": a1["passed"], "rescued": bool(a2 and a2["passed"]),
+                         "status": (a2 or a1)["item"]["status"],
+                         "wall_s": round(a1["wall_s"] + (a2["wall_s"] if a2 else 0), 2),
+                         "agent_exit": (a2 or a1)["item"]["action"].get("exit_code"),
+                         "cost_usd": None if any(c is None for c in costs) else round(sum(costs), 6),
+                         "cost_source": (a2 or a1)["cost_source"],
+                         "prompt_chars": (a2 or a1)["prompt_chars"], "attempts": 1 if a2 is None else 2})
+    return rows
+
+
 def run_bench(suite_path: Path, arms: list[str], *, repeats: int = 1, out_dir: Path | None = None,
               timeout: int = 1800, check_timeout: int = 600, project_root: Path | None = None,
-              tasks_filter: list[str] | None = None, out: TextIO | None = None) -> dict[str, Any]:
+              tasks_filter: list[str] | None = None, out: TextIO | None = None, jobs: int = 1,
+              handoffs: list[str] | None = None, limit: int | None = None) -> dict[str, Any]:
     out = out or sys.stdout
     if not shutil.which("git"):
         raise ValueError("vcmd bench needs git on PATH")
     suite = load_suite(suite_path)
     parsed = [parse_arm(a) for a in arms]
-    if not parsed:
-        raise ValueError("Give at least one --arm, e.g. --arm claude:plain --arm claude:frame")
+    pairs = []
+    for h in handoffs or []:
+        first, sep, second = h.partition(">")
+        if not sep or not first or not second:
+            raise ValueError(f"--handoff must be A>B, got {h!r}")
+        pairs.append((first, second))
+    if not parsed and not pairs:
+        raise ValueError("Give --arm agent:plain / agent:frame and/or --handoff A>B")
     cfg = load_config(project_root) if project_root and (project_root / CONFIG_DIR / "config.json").exists() else {}
     templates = agent_templates(cfg)
-    for agent, _ in parsed:
+    for agent in [a for a, _ in parsed] + [x for p in pairs for x in p]:
         resolve_agent(templates, agent)
-    tasks = [t for t in suite["tasks"] if not tasks_filter or t["id"] in tasks_filter]
+    tasks = [t for t in suite["tasks"] if not tasks_filter or t["id"] in tasks_filter][:limit]
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
     dest = (out_dir or Path.cwd() / CONFIG_DIR / "bench") / run_id
     dest.mkdir(parents=True, exist_ok=True)
+    units = []
+    for r in range(1, repeats + 1):
+        for task in tasks:
+            units += [("arm", task, a, k, r) for a, k in parsed]
+            units += [("handoff", task, f, s, r) for f, s in pairs]
     results: list[dict[str, Any]] = []
-    total = len(tasks) * len(parsed) * repeats
-    n = 0
-    with (dest / "results.jsonl").open("w", encoding="utf-8") as sink:
-        for r in range(1, repeats + 1):
-            for task in tasks:
-                for agent, kind in parsed:   # same task back-to-back across arms: paired conditions
-                    n += 1
-                    print(f"V/  BENCH      [{n}/{total}] {task['id']} {agent}:{kind} (repeat {r})", file=out, flush=True)
-                    res = run_one(suite, task, agent, kind, timeout=timeout, check_timeout=check_timeout,
-                                  templates=templates)
-                    res["repeat"] = r
-                    results.append(res)
-                    sink.write(json.dumps(res) + "\n")
-                    sink.flush()
-                    print(f"V/  RESULT     {'PASS' if res['passed'] else 'FAIL'} {res['wall_s']}s"
-                          + (f" ${res['cost_usd']:.4f}" if res["cost_usd"] is not None else ""), file=out, flush=True)
-    summary = summarize(results, suite.get("name", suite_path.name), [f"{a}:{k}" for a, k in parsed])
+    lock = threading.Lock()
+    counter = {"n": 0}
+    sink = (dest / "results.jsonl").open("w", encoding="utf-8")
+
+    def do(unit) -> None:
+        mode, task, a, b, r = unit
+        if mode == "arm":
+            rows = [run_one(suite, task, a, b, timeout=timeout, check_timeout=check_timeout, templates=templates)]
+        else:
+            rows = run_handoff(suite, task, a, b, timeout=timeout, check_timeout=check_timeout, templates=templates)
+        with lock:
+            for row in rows:
+                row["repeat"] = r
+                results.append(row)
+                sink.write(json.dumps(row) + "\n")
+            sink.flush()
+            counter["n"] += 1
+            print(f"V/  BENCH      [{counter['n']}/{len(units)}] {task['id']} "
+                  + " ".join(f"{row['arm']}={'PASS' if row['passed'] else 'FAIL'}" for row in rows)
+                  + f" ({sum(row['wall_s'] for row in rows):.1f}s)", file=out, flush=True)
+
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+            for future in [pool.submit(do, u) for u in units]:
+                future.result()
+    finally:
+        sink.close()
+    arm_names = [f"{a}:{k}" for a, k in parsed] + [f"{f}>{s}:{k}" for f, s in pairs for k in ARM_KINDS]
+    summary = summarize(results, suite.get("name", suite_path.name), arm_names)
     (dest / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     (dest / "report.md").write_text(render_report(summary), encoding="utf-8")
     summary["dir"] = str(dest)
@@ -183,6 +249,7 @@ def summarize(results: list[dict[str, Any]], suite_name: str, arm_order: list[st
     for arm in arm_order:
         rows = [r for r in results if r["arm"] == arm]
         passed = sum(r["passed"] for r in rows)
+        handoff = [r for r in rows if "first_attempt_passed" in r]
         known = [r["cost_usd"] for r in rows if r["cost_usd"] is not None]
         lo, hi = wilson(passed, len(rows))
         arms[arm] = {"runs": len(rows), "passed": passed, "pass_rate": passed / len(rows) if rows else 0.0,
@@ -191,6 +258,10 @@ def summarize(results: list[dict[str, Any]], suite_name: str, arm_order: list[st
                      "known_cost_usd": round(sum(known), 4) if known else None,
                      "runs_with_unknown_cost": len(rows) - len(known),
                      "median_prompt_chars": int(median(r["prompt_chars"] for r in rows)) if rows else None}
+        if handoff:
+            arms[arm].update(first_attempt_passed=sum(r["first_attempt_passed"] for r in handoff),
+                             second_attempts=sum(r["attempts"] == 2 for r in handoff),
+                             rescued=sum(r["rescued"] for r in handoff))
     paired = []
     for i, a in enumerate(arm_order):
         for b in arm_order[i + 1:]:
@@ -212,7 +283,8 @@ def summarize(results: list[dict[str, Any]], suite_name: str, arm_order: list[st
     return {"suite": suite_name, "tasks": n_tasks, "results": len(results), "arms": arms, "paired": paired,
             "caveats": ([f"Only {n_tasks} task(s): intervals are wide; this is a smoke test, not evidence."]
                         if n_tasks < 30 else []) +
-                       ["Single attempt per run; no handoff or retries.",
+                       ["Arms agent:kind are single attempts; A>B arms share attempt 1 and differ only in "
+                        "how agent B is briefed after a failure.",
                         "Cost is provider-reported where the agent template parses it; otherwise unknown, not zero."]}
 
 
@@ -226,6 +298,13 @@ def render_report(summary: dict[str, Any]) -> str:
         lines.append(f"| {arm} | {s['passed']}/{s['runs']} | {s['pass_rate']:.0%} | "
                      f"{s['wilson95'][0]:.0%}–{s['wilson95'][1]:.0%} | {s['median_wall_s']} | {cost} | "
                      f"{s['runs_with_unknown_cost']} | {s['median_prompt_chars']} |")
+    handoff = {a: s for a, s in summary["arms"].items() if "rescued" in s}
+    if handoff:
+        lines += ["", "## Handoff after a failed first attempt", "",
+                  "| Arm | First attempt passed | Second attempts | Rescued by agent B |", "|---|---|---|---|"]
+        for arm, s in handoff.items():
+            lines.append(f"| {arm} | {s['first_attempt_passed']}/{s['runs']} | {s['second_attempts']} | "
+                         f"{s['rescued']}/{s['second_attempts'] or 0} |")
     if summary["paired"]:
         lines += ["", "## Paired (same task, same repeat)", ""]
         for p in summary["paired"]:
