@@ -4,7 +4,7 @@
 
 > Open-source, terminal-first execution evidence for AI coding agents.
 >
-> **Alpha:** real subprocess execution + verification checks + local evidence. No claim of autonomous model orchestration yet.
+> **Alpha:** real execution, verification checks, local evidence, and task handoff between agents (Claude Code, Codex CLI). No model routing or provider cost tracking yet.
 
 ![vcmd demo: agent-a reports done, the check fails and is recorded; agent-b receives the context frame, fixes it, the check passes](docs/demo.svg)
 
@@ -25,7 +25,7 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Model-independent task state:** `vcmd task` keeps the goal, completed steps and next step on disk, outside any chat session.
 - **Negative knowledge ledger:** failed runs are recorded automatically (`vcmd run --agent … --note …`), so the next agent is told what already failed. Command output is never stored.
 - **Context frame handoff:** `vcmd frame` compiles goal, progress, hard constraints, acceptance gates and repo state into a compact prompt (or `--json`) for *any* agent or model, with a continuity token.
-- **Agent adapters:** `vcmd hooks install claude` (or `codex`) injects the frame into every agent session (start, resume, `/clear`, compaction) and blocks Claude from finishing while your checks fail. `vcmd agent codex claude` runs agents non-interactively and hands the task to the next one when gates fail.
+- **Agent adapters:** `vcmd hooks install claude` (or `codex`) injects the frame into every agent session (start, resume, `/clear`, compaction) and blocks the agent from finishing while your checks fail. `vcmd agent codex claude` runs agents non-interactively and hands the task to the next one when gates fail; `--isolate` gives every attempt its own git worktree and applies only verified changes.
 - No API dependency, no background daemon, no telemetry, no cloud account.
 - Python 3.10+, Windows/macOS/Linux intended; tested in CI matrix.
 
