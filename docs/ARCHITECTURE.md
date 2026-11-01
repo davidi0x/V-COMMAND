@@ -45,6 +45,23 @@ A successful command without configured checks is **unverified**, never "passed"
 
 Git status reflects repository *snapshots* (may contain work that predated the command). No causal attribution of edits is claimed. JSON is not signed or tamper-proof and requires redaction before sharing externally.
 
+## Project state (implemented)
+
+Model-independent state lives next to the evidence:
+
+```text
+.vcommand/
+  config.json      checks (acceptance gates), mode
+  task.json        goal, completed steps, next step
+  ledger.jsonl     append-only failed approaches (negative knowledge)
+  runs/*.json      evidence per run
+```
+
+`vcmd frame` compiles these plus `git rev-parse HEAD` and `git status` into a context frame
+(`frame_version: 1`). `continuity_token` is SHA-256 over the frame without `generated_at_utc`.
+Ledger entries contain the agent name, what was tried, which gate failed and a constraint — never
+command output. See [EXECUTION_KERNEL.md](EXECUTION_KERNEL.md).
+
 ## Future modular design
 
 ```text

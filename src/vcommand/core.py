@@ -91,7 +91,7 @@ def execute(argv: list[str], root: Path, timeout: int) -> dict[str, Any]:
 
 
 def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: int = 120,
-             demo: bool = False) -> dict[str, Any]:
+             demo: bool = False, agent: str | None = None) -> dict[str, Any]:
     if not argv:
         raise ValueError("Missing command")
     cfg = load_config(root)
@@ -119,7 +119,7 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
     after = git_status(root)
     evidence = {
         "schema_version": 1, "id": task_id, "created_at_utc": started_at,
-        "mode": cfg["mode"], "demo": demo,
+        "mode": cfg["mode"], "demo": demo, "agent": agent,
         "status": status, "action": action, "checks": checks,
         "git_status_before": before, "git_status_after": after,
         "cost": {"currency": "USD", "amount": None, "source": "unavailable"},
@@ -163,7 +163,8 @@ def render_evidence(item: dict[str, Any]) -> str:
     lines = [
         "", "V/  EVIDENCE", "-" * 56,
         f"Run       {item['id']}", f"Status    {item['status']}", f"Mode      {item['mode']}",
-        f"Command   {' '.join(item['action']['argv'])}", f"Exit code {item['action']['exit_code']}",
+        f"Command   {' '.join(item['action']['argv'])}",
+        *([f"Agent     {item['agent']}"] if item.get("agent") else []), f"Exit code {item['action']['exit_code']}",
         f"Duration  {item['action']['duration_ms']} ms", f"Checks    {passed}/{total} passed" if total else "Checks    not configured",
     ]
     for idx, c in enumerate(checks, 1):

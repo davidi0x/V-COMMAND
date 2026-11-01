@@ -11,6 +11,8 @@ import tempfile
 from . import __version__
 from .core import (MODES, init_project, load_config, save_config, run_task,
                    read_evidence, render_evidence, list_evidence)
+from .state import (start_task, load_task, complete_step, set_next_step, clear_task,
+                    add_ledger_entry, read_ledger, record_run_failure, build_frame, render_frame)
 
 
 def tokens(args: list[str]) -> list[str]:
@@ -34,7 +36,27 @@ def make_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Execute a command and independently verify it")
     run.add_argument("--timeout", type=int, default=600, help="Command timeout in seconds")
     run.add_argument("--check-timeout", type=int, default=120, help="Each check timeout in seconds")
+    run.add_argument("--agent", help="Name of the agent/model doing the work (recorded in evidence and ledger)")
+    run.add_argument("--note", help="What this attempt tries; recorded in the ledger if it fails")
     run.add_argument("argv", nargs=argparse.REMAINDER)
+    task = sub.add_parser("task", help="Task checkpoint kept outside any model session")
+    task_sub = task.add_subparsers(dest="task_action", required=True)
+    task_sub.add_parser("start", help="Start a new task (replaces the current one)").add_argument("goal")
+    task_sub.add_parser("done", help="Record a completed step").add_argument("step")
+    task_sub.add_parser("next", help="Set the next step to hand over").add_argument("step")
+    task_sub.add_parser("show", help="Show the current task")
+    task_sub.add_parser("clear", help="Remove the current task")
+    ledger = sub.add_parser("ledger", help="Negative knowledge: approaches that already failed")
+    ledger_sub = ledger.add_subparsers(dest="ledger_action", required=True)
+    ledger_add = ledger_sub.add_parser("add", help="Record a failed approach")
+    ledger_add.add_argument("--tried", required=True, help="What was attempted")
+    ledger_add.add_argument("--why", required=True, help="Why it failed (error, failing test, reason)")
+    ledger_add.add_argument("--constraint", help="Rule for the next agent (default derived from --tried/--why)")
+    ledger_add.add_argument("--agent", help="Agent/model that made the attempt")
+    ledger_sub.add_parser("list", help="List recorded failed approaches")
+    frame = sub.add_parser("frame", help="Compile a context frame to hand the task to any agent/model")
+    frame.add_argument("--json", action="store_true", help="Machine-readable frame")
+    frame.add_argument("--out", help="Write to this file instead of stdout")
     evidence = sub.add_parser("evidence", help="View evidence of a run")
     evidence.add_argument("id", nargs="?", default="last")
     evidence.add_argument("--json", action="store_true")
@@ -106,9 +128,56 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("Use: vcmd run -- python my_agent.py")
             if args.timeout < 1 or args.check_timeout < 1:
                 raise ValueError("Timeout must be a positive number of seconds")
-            item = run_task(root, command, timeout=args.timeout, check_timeout=args.check_timeout)
+            item = run_task(root, command, timeout=args.timeout, check_timeout=args.check_timeout, agent=args.agent)
             print(render_evidence(item))
+            entry = record_run_failure(root, item, agent=args.agent, note=args.note)
+            if entry:
+                print(f"V/  LEDGER     recorded failed approach {entry['id']} (next agents will see it in `vcmd frame`)")
             return 0 if item["status"] in {"verified_by_configured_checks", "unverified"} else 1
+        if args.command == "task":
+            if args.task_action == "start":
+                t = start_task(root, args.goal)
+                print(f"V/  Task {t['id']} started: {t['goal']}")
+            elif args.task_action == "done":
+                t = complete_step(root, args.step)
+                print(f"V/  Step recorded ({len(t['completed_steps'])} done)")
+            elif args.task_action == "next":
+                set_next_step(root, args.step)
+                print(f"V/  Next step set: {args.step}")
+            elif args.task_action == "clear":
+                print("V/  Task cleared" if clear_task(root) else "V/  No active task")
+            else:
+                t = load_task(root)
+                if t is None:
+                    print('V/  No active task. Use: vcmd task start "<goal>"')
+                else:
+                    print(f"V/  Task {t['id']}: {t['goal']}")
+                    for i, step in enumerate(t["completed_steps"], 1):
+                        print(f"  {i}. [done] {step['step']}")
+                    print(f"  next: {t.get('next_step') or 'not set'}")
+            return 0
+        if args.command == "ledger":
+            if args.ledger_action == "add":
+                e = add_ledger_entry(root, tried=args.tried, failure=args.why,
+                                     constraint=args.constraint, agent=args.agent)
+                print(f"V/  Recorded {e['id']}: {e['constraint']}")
+            else:
+                entries = read_ledger(root)
+                if not entries:
+                    print("V/  No failed approaches recorded")
+                for e in entries:
+                    who = f" [{e['agent']}]" if e.get("agent") else ""
+                    print(f"{e['id']}  {e['created_at_utc']}{who}\n  tried:   {e['tried']}\n  failed:  {e['failure']}")
+            return 0
+        if args.command == "frame":
+            data = build_frame(root)
+            text = json.dumps(data, indent=2, ensure_ascii=False) + "\n" if args.json else render_frame(data)
+            if args.out:
+                Path(args.out).write_text(text, encoding="utf-8")
+                print(f"V/  Frame written to {args.out} ({data['continuity_token'][:23]})")
+            else:
+                print(text, end="")
+            return 0
         if args.command == "evidence":
             item = read_evidence(root, args.id)
             print(json.dumps(item, indent=2, ensure_ascii=False) if args.json else render_evidence(item))

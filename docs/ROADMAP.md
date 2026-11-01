@@ -5,7 +5,8 @@ Priority order: demonstrate independent verification first, adapter interoperabi
 ## Phase 0 — repo bootstrap (current)
 
 - [x] MIT source repo archive, docs, initial CLI, tests.
-- [ ] Create a public GitHub repository `vcommand` and import the files.
+- [x] Import into the public GitHub repository `davidi0x/V-COMMAND`.
+- [x] Task checkpoint, negative knowledge ledger and context frame handoff (`vcmd task|ledger|frame`).
 - [ ] Run CI on Windows, Ubuntu, macOS.
 - [ ] Upload first honest `vcmd demo` terminal capture to README.
 
@@ -25,7 +26,9 @@ Success = 10 independent developers run it in their real repositories and unders
 6. `adapter: Codex CLI noninteractive session lifecycle`.
 7. `adapter: OpenCode session + event metadata`.
 8. `adapter: Claude Code official hooks and lifecycle`.
-9. `feat: handoff manifest schema for cross-model transfer`.
+9. `feat: AST/dependency slice (tree-sitter) and blast radius in the context frame` — TypeScript first.
+9a. `feat: git worktree sandbox pool for isolated runs and checks`.
+9b. `benchmark: context frame vs. full chat history on ~200 TypeScript tasks` (see docs/EXECUTION_KERNEL.md).
 10. `feat: detect command intent / ask user approval before actions`.
 
 Start with explicit user configurations and maintain a provider compatibility matrix. Do not collect credentials or scrape internal state.
@@ -37,6 +40,8 @@ Start with explicit user configurations and maintain a provider compatibility ma
 13. `feat: local memory with retention, clear, exclusions and project isolation`.
 14. `benchmark: paired evaluation of routing/memory effect on verified tasks`.
 15. `feat: attempt tracking based on actual agent traces`.
+15a. `feat: pre-flight hints derived from ledger counts`.
+15b. `feat: provider circuit breaker + failover at the adapter boundary`.
 
 ## Phase 4 — UX + launch
 
@@ -44,6 +49,8 @@ Start with explicit user configurations and maintain a provider compatibility ma
 17. `integration: VS Code sidebar optional`.
 18. `integration: macOS/Windows V/ Pulse tray optional`.
 19. `marketing: 15-second demo showing a failed check caught and resolved`.
+20. `feat: hardware probe + optional local backup model recommendation (llama.cpp/Ollama)`.
+21. `feat: overnight task queue with file locks and tasks frozen for human decisions`.
 
 ## Out of scope unless users demand it
 
