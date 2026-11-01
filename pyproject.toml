@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vcommand-cli"
+version = "0.1.0a1"
+description = "Open-source, terminal-first evidence layer for AI coding agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "V/COMMAND Contributors"}]
+keywords = ["ai", "coding-agent", "cli", "verification", "evidence", "terminal"]
+classifiers = ["Programming Language :: Python :: 3", "Operating System :: OS Independent"]
+
+[project.scripts]
+vcmd = "vcommand.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
