@@ -14,6 +14,7 @@ from .core import (project_root, MODES, init_project, load_config, save_config, 
 from .state import (start_task, load_task, complete_step, set_next_step, clear_task,
                     add_ledger_entry, read_ledger, record_run_failure, build_frame, render_frame)
 from .isolation import IsolationError
+from .demo import run_demo
 from .adapters import run_agents, run_hook, install_hooks, uninstall_hooks, agent_templates, HOOK_TARGETS
 
 
@@ -79,23 +80,9 @@ def make_parser() -> argparse.ArgumentParser:
     hook.add_argument("target", choices=HOOK_TARGETS)
     hook.add_argument("event", choices=["session-start", "stop"])
     sub.add_parser("cost", help="Report tracked and unknown provider costs")
-    sub.add_parser("demo", help="Run a truthful, synthetic demo with real local checks")
+    demo = sub.add_parser("demo", help="Done isn't verified: scripted agents, real checks, ledger and handoff")
+    demo.add_argument("--fast", action="store_true", help="No pauses (for CI and recordings)")
     return p
-
-
-def demo() -> int:
-    # This exercise creates and checks a real local file. It is NOT an AI-agent demo.
-    with tempfile.TemporaryDirectory(prefix="vcommand-demo-") as temp:
-        root = Path(temp)
-        init_project(root)
-        cfg = load_config(root)
-        cfg["checks"] = [[sys.executable, "-c", "from pathlib import Path; assert Path('output.txt').read_text() == 'ok\\n'"]]
-        save_config(root, cfg)
-        action = [sys.executable, "-c", "from pathlib import Path; Path('output.txt').write_text('ok\\n')"]
-        result = run_task(root, action, demo=True)
-        print(render_evidence(result))
-        print("DEMO ONLY: synthetic fixture, real subprocess/check result, no AI model called.")
-        return 0 if result["status"] == "verified_by_configured_checks" else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
             print("V/  Network isolation and model-provider integration are not implemented.")
             return 0
         if args.command == "demo":
-            return demo()
+            return run_demo(fast=args.fast)
         if args.command == "hook":
             # Never break the agent session because of V/COMMAND: report and exit 0.
             try:

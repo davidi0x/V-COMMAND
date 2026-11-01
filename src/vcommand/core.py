@@ -136,11 +136,14 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
         action = execute(argv, work, timeout, stdout=child_stdout, stdin=child_stdin, env=env)
         action["argv"] = list(shown)
     checks: list[dict[str, Any]] = []
+    # Checks must not leave Python bytecode behind: a cached .pyc from a check could mask a later
+    # edit made within the same second with the same file size.
+    check_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     run_checks = action["passed"] or (gates_judge and "error_type" not in action)
     if run_checks:
         for check_argv in cfg["checks"]:
             print(f"V/  VERIFY     {' '.join(check_argv)}", file=log, flush=True)
-            checks.append(execute(check_argv, work, check_timeout, stdout=child_stdout))
+            checks.append(execute(check_argv, work, check_timeout, stdout=child_stdout, env=check_env))
     else:
         print("V/  CHECKS     skipped: execution failed", file=log, flush=True)
     # No checks -> unverified, even when action exit code is 0.

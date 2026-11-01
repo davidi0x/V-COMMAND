@@ -7,8 +7,8 @@ Priority order: demonstrate independent verification first, adapter interoperabi
 - [x] MIT source repo archive, docs, initial CLI, tests.
 - [x] Import into the public GitHub repository `davidi0x/V-COMMAND`.
 - [x] Task checkpoint, negative knowledge ledger and context frame handoff (`vcmd task|ledger|frame`).
-- [ ] Run CI on Windows, Ubuntu, macOS.
-- [ ] Upload first honest `vcmd demo` terminal capture to README.
+- [x] Run CI on Windows, Ubuntu, macOS.
+- [x] Upload first honest `vcmd demo` terminal capture to README (`docs/demo.svg`, rendered from a real run).
 
 ## Phase 1 — useful verification CLI (milestone: v0.1 stable)
 
@@ -48,7 +48,7 @@ Start with explicit user configurations and maintain a provider compatibility ma
 16. `ux: lean terminal TUI with keyboard-only flows`.
 17. `integration: VS Code sidebar optional`.
 18. `integration: macOS/Windows V/ Pulse tray optional`.
-19. `marketing: 15-second demo showing a failed check caught and resolved`.
+19. [x] `marketing: 15-second demo showing a failed check caught and resolved` — `vcmd demo`, `docs/demo.svg`.
 20. `feat: hardware probe + optional local backup model recommendation (llama.cpp/Ollama)`.
 21. `feat: overnight task queue with file locks and tasks frozen for human decisions`.
 

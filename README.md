@@ -6,19 +6,9 @@
 >
 > **Alpha:** real subprocess execution + verification checks + local evidence. No claim of autonomous model orchestration yet.
 
-```text
-V/COMMAND                                      / verified execution
-────────────────────────────────────────────────────────────────────
-V/  EXECUTE    python -m my_existing_agent
-V/  VERIFY     python -m unittest discover -s tests
-V/  EVIDENCE
-Run       20261101T210000Z-example
-Status    verified_by_configured_checks
-Checks    1/1 command passed
-API cost  unknown (no provider receipt)
-Savings   unknown (no benchmark baseline)
-────────────────────────────────────────────────────────────────────
-```
+![vcmd demo: agent-a reports done, the check fails and is recorded; agent-b receives the context frame, fixes it, the check passes](docs/demo.svg)
+
+**Done isn't verified.** Run it yourself: `vcmd demo` (scripted agents, real files, checks and ledger; regenerate the recording with `python scripts/render_demo_svg.py`).
 
 ## Why
 

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1031" height="448" viewBox="0 0 1031 448" role="img" aria-label="V/COMMAND demo: an agent reports done, the check fails, the next agent fixes it and the check passes">
+<style>
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;white-space:pre}
+@keyframes l0{0%,0.00%{opacity:0}0.50%,98.0%{opacity:1}100%{opacity:0}}
+.l0{opacity:0;animation:l0 19.3s linear infinite}
+@keyframes l1{0%,3.63%{opacity:0}4.13%,98.0%{opacity:1}100%{opacity:0}}
+.l1{opacity:0;animation:l1 19.3s linear infinite}
+@keyframes l2{0%,7.25%{opacity:0}7.75%,98.0%{opacity:1}100%{opacity:0}}
+.l2{opacity:0;animation:l2 19.3s linear infinite}
+@keyframes l3{0%,10.88%{opacity:0}11.38%,98.0%{opacity:1}100%{opacity:0}}
+.l3{opacity:0;animation:l3 19.3s linear infinite}
+@keyframes l4{0%,14.51%{opacity:0}15.01%,98.0%{opacity:1}100%{opacity:0}}
+.l4{opacity:0;animation:l4 19.3s linear infinite}
+@keyframes l5{0%,18.13%{opacity:0}18.63%,98.0%{opacity:1}100%{opacity:0}}
+.l5{opacity:0;animation:l5 19.3s linear infinite}
+@keyframes l6{0%,21.76%{opacity:0}22.26%,98.0%{opacity:1}100%{opacity:0}}
+.l6{opacity:0;animation:l6 19.3s linear infinite}
+@keyframes l7{0%,25.39%{opacity:0}25.89%,98.0%{opacity:1}100%{opacity:0}}
+.l7{opacity:0;animation:l7 19.3s linear infinite}
+@keyframes l8{0%,29.02%{opacity:0}29.52%,98.0%{opacity:1}100%{opacity:0}}
+.l8{opacity:0;animation:l8 19.3s linear infinite}
+@keyframes l9{0%,32.64%{opacity:0}33.14%,98.0%{opacity:1}100%{opacity:0}}
+.l9{opacity:0;animation:l9 19.3s linear infinite}
+@keyframes l10{0%,36.27%{opacity:0}36.77%,98.0%{opacity:1}100%{opacity:0}}
+.l10{opacity:0;animation:l10 19.3s linear infinite}
+@keyframes l11{0%,39.90%{opacity:0}40.40%,98.0%{opacity:1}100%{opacity:0}}
+.l11{opacity:0;animation:l11 19.3s linear infinite}
+@keyframes l12{0%,43.52%{opacity:0}44.02%,98.0%{opacity:1}100%{opacity:0}}
+.l12{opacity:0;animation:l12 19.3s linear infinite}
+@keyframes l13{0%,47.15%{opacity:0}47.65%,98.0%{opacity:1}100%{opacity:0}}
+.l13{opacity:0;animation:l13 19.3s linear infinite}
+@keyframes l14{0%,50.78%{opacity:0}51.28%,98.0%{opacity:1}100%{opacity:0}}
+.l14{opacity:0;animation:l14 19.3s linear infinite}
+@keyframes l15{0%,54.40%{opacity:0}54.90%,98.0%{opacity:1}100%{opacity:0}}
+.l15{opacity:0;animation:l15 19.3s linear infinite}
+@keyframes l16{0%,58.03%{opacity:0}58.53%,98.0%{opacity:1}100%{opacity:0}}
+.l16{opacity:0;animation:l16 19.3s linear infinite}
+@keyframes l17{0%,61.66%{opacity:0}62.16%,98.0%{opacity:1}100%{opacity:0}}
+.l17{opacity:0;animation:l17 19.3s linear infinite}
+@keyframes l18{0%,65.28%{opacity:0}65.78%,98.0%{opacity:1}100%{opacity:0}}
+.l18{opacity:0;animation:l18 19.3s linear infinite}
+</style>
+<rect width="1031" height="448" rx="8" fill="#0d1117"/>
+<circle cx="18" cy="16" r="5" fill="#ff5f56"/><circle cx="34" cy="16" r="5" fill="#ffbd2e"/><circle cx="50" cy="16" r="5" fill="#27c93f"/>
+<text class="l0" x="20" y="48" fill="#e6edf3">$ vcmd demo</text>
+<text class="l1" x="20" y="68" fill="#79c0ff">V/COMMAND demo — Done isn't verified</text>
+<text class="l2" x="20" y="88" fill="#c9d1d9">(scripted agents; real files, real checks, real ledger; no AI model called)</text>
+<text class="l3" x="20" y="108" fill="#c9d1d9"></text>
+<text class="l4" x="20" y="128" fill="#d2a8ff">[1] agent-a works on: Implement add(a, b) in calc.py</text>
+<text class="l5" x="20" y="148" fill="#8b949e">      agent-a: implemented add() in calc.py. Task complete, all done!</text>
+<text class="l6" x="20" y="168" fill="#79c0ff">V/  VERIFY     test_calc.py: add(2, 3) = -1, expected 5</text>
+<text class="l7" x="20" y="188" fill="#ff7b72">V/  RESULT     FAIL -&gt; status: failed_verification</text>
+<text class="l8" x="20" y="208" fill="#ff7b72">V/  NOTE       the agent said "done"; the check disagrees. Not verified.</text>
+<text class="l9" x="20" y="228" fill="#79c0ff">V/  LEDGER     neg-4a0c4019: "agent-a: add() implemented as a - b" failed test_calc.py; next agents must not repeat it</text>
+<text class="l10" x="20" y="248" fill="#c9d1d9"></text>
+<text class="l11" x="20" y="268" fill="#d2a8ff">[2] handoff -&gt; agent-b with context frame sha256:4084bb3c8da2be5a</text>
+<text class="l12" x="20" y="288" fill="#8b949e">      agent-b: received context frame, 1 failed approach(es) to avoid</text>
+<text class="l13" x="20" y="308" fill="#8b949e">      agent-b: fixed add() in calc.py</text>
+<text class="l14" x="20" y="328" fill="#79c0ff">V/  VERIFY     test_calc.py: add(2, 3) = 5, expected 5</text>
+<text class="l15" x="20" y="348" fill="#3fb950">V/  RESULT     PASS -&gt; status: verified_by_configured_checks</text>
+<text class="l16" x="20" y="368" fill="#c9d1d9"></text>
+<text class="l17" x="20" y="388" fill="#c9d1d9">Evidence: 2 runs, 1 recorded failure, cost unknown (no provider receipt).</text>
+<text class="l18" x="20" y="408" fill="#3fb950">Done isn't verified. Verified is verified.</text>
+</svg>

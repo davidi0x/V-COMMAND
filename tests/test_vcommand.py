@@ -1,4 +1,6 @@
 from pathlib import Path
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -67,8 +69,17 @@ class CoreTests(unittest.TestCase):
 
 
 class CLITests(unittest.TestCase):
+    def test_demo_story_fail_then_verified(self):
+        from vcommand.demo import run_demo
+        out = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(run_demo(fast=True, out=out), 0)
+        text = out.getvalue()
+        self.assertLess(text.index("FAIL -> status: failed_verification"),
+                        text.index("PASS -> status: verified_by_configured_checks"))
+
     def test_demo_real_checks(self):
-        self.assertEqual(main(["demo"]), 0)
+        self.assertEqual(main(["demo", "--fast"]), 0)
 
 
 if __name__ == "__main__":
