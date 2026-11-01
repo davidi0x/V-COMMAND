@@ -53,8 +53,11 @@ Model-independent state lives next to the evidence:
 .vcommand/
   config.json      checks (acceptance gates), mode
   task.json        goal, completed steps, next step
-  ledger.jsonl     append-only failed approaches (negative knowledge)
-  runs/*.json      evidence per run
+  ledger.jsonl     append-only failed approaches (negative knowledge), with files and failed gates
+  runs/*.json      evidence per run (agent, task_id, provider-reported cost when available)
+  agent_health.json  circuit-breaker state per agent
+  queue.json       overnight queue: tasks, dependencies, status, questions, commits
+  bench/<run>/     benchmark results (results.jsonl, summary.json, report.md)
 ```
 
 `vcmd frame` compiles these plus `git rev-parse HEAD` and `git status` into a context frame

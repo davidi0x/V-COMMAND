@@ -26,6 +26,10 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Negative knowledge ledger:** failed runs are recorded automatically (`vcmd run --agent … --note …`), so the next agent is told what already failed. Command output is never stored.
 - **Context frame handoff:** `vcmd frame` compiles goal, progress, hard constraints, acceptance gates and repo state into a compact prompt (or `--json`) for *any* agent or model, with a continuity token.
 - **Agent adapters:** `vcmd hooks install claude` (or `codex`) injects the frame into every agent session (start, resume, `/clear`, compaction) and blocks the agent from finishing while your checks fail. `vcmd agent codex claude` runs agents non-interactively and hands the task to the next one when gates fail; `--isolate` gives every attempt its own git worktree and applies only verified changes.
+- **Code slice:** `vcmd task focus src/auth.ts:AuthService.login` puts the focused code and its blast radius (tests, importers, callers) in the frame; **pre-flight warnings** come from counts in the ledger.
+- **Failover, cost, budget:** agents whose provider fails are skipped for a cooldown; Claude Code's reported cost is recorded per attempt; `--budget` stops spending on a task.
+- **Benchmark:** `vcmd bench` compares `agent:plain` vs `agent:frame` on a task suite (see [benchmarks/](benchmarks/README.md); first smoke result: no benefit on small tasks, +39% cost).
+- **Local backup and overnight queue:** `vcmd hw` recommends an Ollama model that fits your machine and registers it as a fallback agent; `vcmd queue` runs tasks overnight, commits only verified work and keeps questions for you.
 - No API dependency, no background daemon, no telemetry, no cloud account.
 - Python 3.10+, Windows/macOS/Linux intended; tested in CI matrix.
 
@@ -67,6 +71,18 @@ vcmd agent codex claude --isolate   # each attempt in its own git worktree; only
 
 Details: [docs/ADAPTERS.md](docs/ADAPTERS.md).
 
+### Overnight queue
+
+```bash
+vcmd hw                          # what can this machine run locally?
+vcmd hw --add-agent local        # register codex --oss + Ollama as a free fallback
+vcmd queue add "Add rate limiting to /login" --focus src/auth.ts:login --gate "npm test"
+vcmd queue add "Document the new limit" --after q-xxxxxx
+vcmd queue run claude local --until 07:00 --budget 1.50
+vcmd queue report                # committed / failed / waiting for your decision
+vcmd queue answer q-yyyyyy "Use 5 attempts per minute"
+```
+
 `.vcommand/task.json` and `.vcommand/ledger.jsonl` are plain files: commit them to share project memory with your team, or keep them ignored.
 
 **Note:** The example shows an actual Python command, not an LLM integration. Replace it with your existing trusted agent command (e.g. any executable available in PATH). Commands are executed with *your* current OS permissions. Do not run untrusted tools.
@@ -95,9 +111,12 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | Per-attempt git worktree isolation (`--isolate`) | Implemented |
 | OpenCode adapter | Planned |
 | Manual cross-agent handoff (context frame + ledger) | Implemented |
-| AST/dependency slice in the frame | Planned |
-| Automatic model routing / failover | Planned |
-| Enforced cost ceiling / provider receipts | Planned |
+| Provider failover (circuit breaker), cost from Claude Code, budget | Implemented |
+| Code slice + blast radius in the frame | Implemented (Python exact, TS/JS heuristic) |
+| Benchmark harness | Implemented; 200-task suite not built yet |
+| Hardware probe, local backup agent, overnight queue | Implemented (sequential queue) |
+| Automatic model routing by task difficulty | Not implemented |
+| Cost for Codex CLI / other providers | Unknown (no USD receipt) |
 | True air-gapped offline enforcement | Not implemented |
 | Local semantic memory / savings measurements | Planned |
 | Auto-repair on failed verification | Planned |

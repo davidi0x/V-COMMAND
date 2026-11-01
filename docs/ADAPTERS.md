@@ -94,17 +94,38 @@ Evidence stores `<context frame sha256:…>` instead of the prompt.
 
 ### Templates
 
-Defaults (override or add agents in `.vcommand/config.json`; `{prompt}` is required):
+Defaults (override or add agents in `.vcommand/config.json`; `{prompt}` is required). A template is an
+argv list, or `{"argv": [...], "cost": "claude-json"}` to record the provider-reported cost:
 
 ```json
 {
   "agents": {
     "codex":  ["codex", "exec", "--sandbox", "workspace-write", "{prompt}"],
-    "claude": ["claude", "-p", "--permission-mode", "acceptEdits", "{prompt}"],
-    "cheap":  ["claude", "-p", "--model", "haiku", "--permission-mode", "acceptEdits", "{prompt}"]
-  }
+    "claude": {"argv": ["claude", "-p", "--output-format", "json", "--permission-mode", "acceptEdits", "{prompt}"],
+               "cost": "claude-json"},
+    "cheap":  {"argv": ["claude", "-p", "--model", "haiku", "--output-format", "json",
+                        "--permission-mode", "acceptEdits", "{prompt}"], "cost": "claude-json"},
+    "local":  {"argv": ["codex", "exec", "--oss", "--local-provider", "ollama", "-m", "qwen2.5-coder:7b",
+                        "--sandbox", "workspace-write", "{prompt}"]}
+  },
+  "failover": {"cooldown_s": 600},
+  "budget": {"max_usd_per_task": 1.0}
 }
 ```
+
+`local` is what `vcmd hw --add-agent local` writes for your machine.
+
+### Failover and budget
+
+- **Circuit breaker.** An attempt that could not launch, timed out, or exited non-zero without changing
+  any file is treated as a provider/agent failure (auth, quota, rate limit, outage, no local server).
+  That agent is skipped for `failover.cooldown_s` while other listed agents are available
+  (`V/  FAILOVER   skipping codex: …`). Success closes the circuit. `vcmd agent --health` shows the
+  state, `--reset-health` clears it. Verified live: unauthenticated Codex was skipped on the next run
+  and Haiku took the task directly.
+- **Budget.** `--budget 0.50` or `budget.max_usd_per_task` stops before the next attempt once the known,
+  provider-reported spend on the current task reaches the limit. Attempts with unknown cost (agents
+  without a cost parser) are listed, not counted as zero.
 
 The `codex` template is checked against codex-cli 0.166 (`--full-auto` no longer exists there; use
 `--sandbox workspace-write`). If your version differs, compare with `codex exec --help`.
@@ -117,4 +138,4 @@ gate passed. A provider outage, quota or login problem becomes a handoff instead
 ## Not yet
 
 - OpenCode adapter.
-- Cost per attempt from provider receipts (cost remains `unknown`).
+- Cost for Codex CLI (it reports tokens, not USD; cost stays `unknown`).

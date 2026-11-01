@@ -27,21 +27,22 @@ Success = 10 independent developers run it in their real repositories and unders
 7. `adapter: OpenCode session + event metadata`.
 8. [x] `adapter: Claude Code official hooks and lifecycle` — SessionStart frame injection, Stop gate.
 8a. [x] `feat: per-attempt worktree isolation` — `vcmd agent --isolate`.
-9. `feat: AST/dependency slice (tree-sitter) and blast radius in the context frame` — TypeScript first.
-9b. `benchmark: context frame vs. full chat history on ~200 TypeScript tasks` (see docs/EXECUTION_KERNEL.md).
+9. [x] `feat: code slice and blast radius in the context frame` — `vcmd task focus` (Python ast, TS/JS scanner).
+9a. [x] `feat: benchmark harness` — `vcmd bench`, sample suite, first smoke result recorded.
+9b. `benchmark: ~200 TypeScript tasks incl. handoff arms` — harness ready, task set to build.
 10. `feat: detect command intent / ask user approval before actions`.
 
 Start with explicit user configurations and maintain a provider compatibility matrix. Do not collect credentials or scrape internal state.
 
 ## Phase 3 — trustworthy cost and memory (milestone: v0.3)
 
-11. `feat: provider cost receipt ingestion and price source metadata`.
-12. `feat: preflight budget gate at model adapter boundary`.
+11. [x] `feat: provider cost receipt ingestion` — Claude Code `total_cost_usd`; Codex stays unknown (tokens only).
+12. [x] `feat: budget gate` — `--budget`, `budget.max_usd_per_task`, checked before each attempt.
 13. `feat: local memory with retention, clear, exclusions and project isolation`.
 14. `benchmark: paired evaluation of routing/memory effect on verified tasks`.
 15. `feat: attempt tracking based on actual agent traces`.
-15a. `feat: pre-flight hints derived from ledger counts`.
-15b. `feat: provider circuit breaker + failover at the adapter boundary`.
+15a. [x] `feat: pre-flight hints derived from ledger counts`.
+15b. [x] `feat: provider circuit breaker + failover at the adapter boundary`.
 
 ## Phase 4 — UX + launch
 
@@ -49,8 +50,8 @@ Start with explicit user configurations and maintain a provider compatibility ma
 17. `integration: VS Code sidebar optional`.
 18. `integration: macOS/Windows V/ Pulse tray optional`.
 19. [x] `marketing: 15-second demo showing a failed check caught and resolved` — `vcmd demo`, `docs/demo.svg`.
-20. `feat: hardware probe + optional local backup model recommendation (llama.cpp/Ollama)`.
-21. `feat: overnight task queue with file locks and tasks frozen for human decisions`.
+20. [x] `feat: hardware probe + local backup model recommendation` — `vcmd hw`, `--add-agent local` (codex --oss + Ollama).
+21. [x] `feat: overnight task queue with tasks frozen for human decisions` — `vcmd queue`, `vcmd ask` (sequential; no parallel workers yet).
 
 ## Out of scope unless users demand it
 
