@@ -13,6 +13,9 @@ authors = [{name = "V/COMMAND Contributors"}]
 keywords = ["ai", "coding-agent", "cli", "verification", "evidence", "terminal"]
 classifiers = ["Programming Language :: Python :: 3", "Operating System :: OS Independent"]
 
+[project.optional-dependencies]
+ast = ["tree-sitter>=0.23", "tree-sitter-typescript>=0.23"]
+
 [project.scripts]
 vcmd = "vcommand.cli:main"
 

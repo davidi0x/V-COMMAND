@@ -175,3 +175,37 @@ class PreflightTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+try:
+    import tree_sitter  # noqa: F401
+    import tree_sitter_typescript  # noqa: F401
+    HAVE_TS = True
+except ImportError:
+    HAVE_TS = False
+
+
+@unittest.skipUnless(HAVE_TS, "tree-sitter not installed (pip install 'vcommand-cli[ast]')")
+class TreeSitterTests(unittest.TestCase):
+    def test_tree_sitter_matches_scanner_on_key_symbols(self):
+        import os
+        from vcommand.slice import slice_parser_name
+        self.assertEqual(slice_parser_name(), "tree-sitter")
+        ts = {s["name"]: s for s in extract_symbols(Path("AuthService.ts"), AUTH_TS)}
+        os.environ["VCOMMAND_SLICE_PARSER"] = "scanner"
+        try:
+            sc = {s["name"]: s for s in extract_symbols(Path("AuthService.ts"), AUTH_TS)}
+        finally:
+            del os.environ["VCOMMAND_SLICE_PARSER"]
+        for name in ("SessionToken", "UserId", "AuthService", "AuthService.login",
+                     "AuthService.confirmPasswordReset", "hashPassword", "isStrong"):
+            self.assertIn(name, ts)
+            self.assertEqual((ts[name]["start"], ts[name]["end"]), (sc[name]["start"], sc[name]["end"]), name)
+        self.assertNotIn("AuthService.helper", ts)
+
+    def test_tree_sitter_handles_syntax_the_scanner_gets_wrong(self):
+        # a regex literal containing a brace confuses brace matching; tree-sitter parses it correctly
+        code = "export function f(s: string) {\n  return s.replace(/}/g, '');\n}\nexport function g() {\n  return 1;\n}\n"
+        syms = {s["name"]: s for s in extract_symbols(Path("x.ts"), code)}
+        self.assertEqual((syms["f"]["start"], syms["f"]["end"]), (1, 3))
+        self.assertEqual((syms["g"]["start"], syms["g"]["end"]), (4, 6))

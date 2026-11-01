@@ -38,8 +38,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install package
-        run: python -m pip install -e .
+      - name: Install package with the optional tree-sitter backend
+        run: python -m pip install -e ".[ast]"
+      - name: Code slice tests with tree-sitter
+        run: python -m unittest tests.test_slice -v
       - name: Suite is reproducible from the generator
         run: |
           python scripts/gen_ts_suite.py /tmp/ts200

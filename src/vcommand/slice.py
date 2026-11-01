@@ -6,13 +6,15 @@ references it (callers, importers, tests).
 
 Parsing is standard-library only:
 * Python: the `ast` module (exact line ranges).
-* TypeScript / JavaScript: a declaration scanner with brace matching that skips strings, template
-  literals and comments. It is a heuristic, not a full parser; unusual syntax may be missed.
+* TypeScript / JavaScript: tree-sitter when installed (`pip install "vcommand-cli[ast]"`), otherwise a
+  declaration scanner with brace matching that skips strings, template literals and comments (a
+  heuristic, not a full parser; unusual syntax may be missed).
 """
 from __future__ import annotations
 
 from pathlib import Path
 import ast
+import os
 import re
 import shutil
 import subprocess
@@ -148,13 +150,86 @@ def _js_symbols(text: str) -> list[dict[str, Any]]:
     return sorted(out, key=lambda s: s["start"])
 
 
+# ---------------------------------------------------------------- optional tree-sitter backend
+
+_TS_PARSERS: dict[str, Any] = {}
+
+
+def _tree_sitter_parser(suffix: str):
+    """A tree-sitter parser for TS/TSX/JS when `tree_sitter` and `tree_sitter_typescript` are installed
+    (pip install "vcommand-cli[ast]"); None otherwise. VCOMMAND_SLICE_PARSER=scanner forces the scanner."""
+    if os.environ.get("VCOMMAND_SLICE_PARSER", "auto") == "scanner":
+        return None
+    key = "tsx" if suffix in {".tsx", ".jsx"} else "ts"
+    if key not in _TS_PARSERS:
+        try:
+            import tree_sitter
+            import tree_sitter_typescript as tst
+            lang = tree_sitter.Language(tst.language_tsx() if key == "tsx" else tst.language_typescript())
+            _TS_PARSERS[key] = tree_sitter.Parser(lang)
+        except (ImportError, AttributeError, TypeError, ValueError):
+            _TS_PARSERS[key] = None
+    return _TS_PARSERS[key]
+
+
+_TS_KINDS = {"function_declaration": "function", "generator_function_declaration": "function",
+             "function_signature": "function", "class_declaration": "class", "abstract_class_declaration": "class",
+             "interface_declaration": "interface", "type_alias_declaration": "type", "enum_declaration": "enum"}
+
+
+def _tree_sitter_symbols(parser, text: str) -> list[dict[str, Any]]:
+    source = text.encode("utf-8")
+    lines = text.splitlines()
+    out: list[dict[str, Any]] = []
+
+    def name_of(node) -> str | None:
+        n = node.child_by_field_name("name")
+        return n.text.decode("utf-8", "replace") if n is not None else None
+
+    def add(node, name: str, kind: str) -> None:
+        outer = node.parent if node.parent is not None and node.parent.type == "export_statement" else node
+        if kind == "function" and node.type == "variable_declarator":
+            outer = node.parent.parent if node.parent.parent is not None and \
+                node.parent.parent.type == "export_statement" else node.parent
+        start, end = outer.start_point[0] + 1, outer.end_point[0] + 1
+        out.append({"name": name, "kind": kind, "start": start, "end": end,
+                    "signature": lines[start - 1].strip() if start - 1 < len(lines) else ""})
+
+    def walk(node) -> None:
+        kind = _TS_KINDS.get(node.type)
+        name = name_of(node)
+        if kind and name:
+            add(node, name, kind)
+            if kind == "class":
+                body = node.child_by_field_name("body")
+                for member in (body.named_children if body is not None else []):
+                    if member.type in {"method_definition", "method_signature", "abstract_method_signature"}:
+                        mname = name_of(member)
+                        if mname:
+                            add(member, f"{name}.{mname}", "method")
+        elif node.type == "variable_declarator" and name:
+            value = node.child_by_field_name("value")
+            if value is not None and value.type in {"arrow_function", "function_expression", "function"}:
+                add(node, name, "function")
+        for child in node.named_children:
+            walk(child)
+
+    walk(parser.parse(source).root_node)
+    return sorted(out, key=lambda s: (s["start"], s["name"]))
+
+
+def slice_parser_name(suffix: str = ".ts") -> str:
+    return "tree-sitter" if _tree_sitter_parser(suffix) is not None else "scanner (heuristic)"
+
+
 def extract_symbols(path: Path, text: str | None = None) -> list[dict[str, Any]]:
     if text is None:
         text = path.read_text(encoding="utf-8", errors="replace")
     if path.suffix in PY_EXT:
         return _python_symbols(text)
     if path.suffix in JS_EXT:
-        return _js_symbols(text)
+        parser = _tree_sitter_parser(path.suffix)
+        return _tree_sitter_symbols(parser, text) if parser is not None else _js_symbols(text)
     return []
 
 
@@ -245,7 +320,7 @@ def build_slice(root: Path, focus: list[str]) -> dict[str, Any]:
             unique.append(r)
     return {"symbols": symbols_out, "references": unique[:MAX_REFERENCES],
             "references_omitted": max(0, len(unique) - MAX_REFERENCES), "problems": problems,
-            "parser": "python-ast + js/ts declaration scanner (heuristic)"}
+            "parser": f"python ast + ts/js {slice_parser_name()}"}
 
 
 def _references(root: Path, files: list[Path], target_rel: str, names: list[str]) -> list[dict[str, Any]]:
