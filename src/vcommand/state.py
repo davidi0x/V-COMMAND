@@ -117,7 +117,8 @@ def changed_files(evidence: dict[str, Any]) -> list[str]:
 
 def add_ledger_entry(root: Path, *, tried: str, failure: str, constraint: str | None = None,
                      agent: str | None = None, run_id: str | None = None, source: str = "manual",
-                     files: list[str] | None = None, failed_checks: list[str] | None = None) -> dict[str, Any]:
+                     files: list[str] | None = None, failed_checks: list[str] | None = None,
+                     pattern: str | None = None) -> dict[str, Any]:
     """Append one failed approach. Append-only JSON Lines; never stores command output."""
     tried_c = _clean(tried, "description of what was tried")
     failure_c = _clean(failure, "failure reason")
@@ -134,6 +135,8 @@ def add_ledger_entry(root: Path, *, tried: str, failure: str, constraint: str | 
         # structured fields feed pre-flight hints (counts per file / per gate)
         "files": [f[:200] for f in (files or [])][:50],
         "failed_checks": [c[:300] for c in (failed_checks or [])][:20],
+        # literal code fragment the stream guard refuses in later edits (e.g. "jwt.destroy(")
+        "pattern": pattern.strip()[:200] if pattern and pattern.strip() else None,
     }
     path = ledger_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,7 +165,8 @@ def record_run_failure(root: Path, evidence: dict[str, Any], *, agent: str | Non
     failed_checks: list[str] = []
     if status == "failed":
         a = evidence["action"]
-        failure = "command timed out" if a.get("timed_out") else f"command exited with code {a['exit_code']}"
+        failure = (a["killed"] if a.get("killed") else
+                   "command timed out" if a.get("timed_out") else f"command exited with code {a['exit_code']}")
     elif status == "failed_verification":
         failed = [c for c in evidence["checks"] if not c["passed"]]
         failed_checks = [" ".join(c["argv"]) for c in failed]

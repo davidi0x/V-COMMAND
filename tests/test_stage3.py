@@ -95,7 +95,7 @@ class Stage3Tests(unittest.TestCase):
     def test_templates_accept_list_and_spec_and_reject_unknown_parser(self):
         t = agent_templates({"agents": {"x": ["a", "{prompt}"]}})
         self.assertEqual(t["x"], {"argv": ["a", "{prompt}"], "cost": None})
-        self.assertEqual(t["claude"]["cost"], "claude-json")
+        self.assertEqual(t["claude"]["cost"], "claude-stream")
         with self.assertRaises(ValueError):
             agent_templates({"agents": {"x": {"argv": ["a", "{prompt}"], "cost": "guess"}}})
 

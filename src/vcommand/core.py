@@ -5,9 +5,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json
 import os
+import queue
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from typing import Any
@@ -80,31 +83,95 @@ def git_status(root: Path) -> list[str] | None:
         return None
 
 
-def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None,
-            stdin: int | None = None, env: dict[str, str] | None = None, capture: bool = False) -> dict[str, Any]:
-    """Run an explicitly supplied argv directly, without a shell or output capture.
+def _popen_kwargs() -> dict[str, Any]:
+    # own process group, so a kill also stops the agent's child processes
+    if os.name == "nt":
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
 
-    `stdout` may redirect the child's stdout to another file descriptor (e.g. 2 inside
-    agent hooks, whose stdout is reserved for the hook protocol)."""
-    start = time.monotonic()
-    timed_out = False
+
+def _kill(proc: subprocess.Popen) -> None:
     try:
-        completed = subprocess.run(argv, cwd=root, timeout=timeout, check=False,
-                                   stdout=subprocess.PIPE if capture else stdout, stdin=stdin, env=env)
-        exit_code = completed.returncode
-        captured = completed.stdout if capture else None
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        exit_code = 124
-        captured = None
+        if os.name != "nt":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except (OSError, ProcessLookupError):
+        pass
+
+
+def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None,
+            stdin: int | None = None, env: dict[str, str] | None = None, parser=None,
+            cancel: threading.Event | None = None) -> dict[str, Any]:
+    """Run an explicitly supplied argv directly, without a shell.
+
+    `stdout` may redirect the child's stdout (e.g. fd 2 inside agent hooks, whose stdout is reserved
+    for the hook protocol). With a `parser`, stdout is read line by line while the process runs: the
+    parser echoes it and may return a reason to kill the process (stream guard). A set `cancel` event
+    kills the process (used when a parallel attempt already won). Output is never persisted."""
+    start = time.monotonic()
+    elapsed = lambda: int((time.monotonic() - start) * 1000)  # noqa: E731
+    if parser is None and cancel is None:
+        try:
+            completed = subprocess.run(argv, cwd=root, timeout=timeout, check=False, stdout=stdout,
+                                       stdin=stdin, env=env)
+            code, timed_out = completed.returncode, False
+        except subprocess.TimeoutExpired:
+            code, timed_out = 124, True
+        except OSError as error:
+            # Don't store stderr / environment / secrets; error class is sufficient.
+            return {"argv": argv, "exit_code": 127, "duration_ms": elapsed(), "timed_out": False,
+                    "error_type": type(error).__name__, "passed": False}
+        return {"argv": argv, "exit_code": code, "duration_ms": elapsed(), "timed_out": timed_out,
+                "passed": code == 0 and not timed_out}
+
+    try:
+        proc = subprocess.Popen(argv, cwd=root, stdin=stdin, env=env,
+                                stdout=subprocess.PIPE if parser is not None else stdout, **_popen_kwargs())
     except OSError as error:
-        # Don't store stderr / environment / secrets; error class is sufficient.
-        return {"argv": argv, "exit_code": 127, "duration_ms": int((time.monotonic()-start)*1000),
-                "timed_out": False, "error_type": type(error).__name__, "passed": False}
-    result = {"argv": argv, "exit_code": exit_code, "duration_ms": int((time.monotonic()-start)*1000),
-              "timed_out": timed_out, "passed": exit_code == 0 and not timed_out}
-    if capture:
-        result["_stdout"] = captured  # transient: popped by run_task, never persisted
+        return {"argv": argv, "exit_code": 127, "duration_ms": elapsed(), "timed_out": False,
+                "error_type": type(error).__name__, "passed": False}
+    lines: queue.Queue = queue.Queue()
+    reader = None
+    if parser is not None:
+        def pump() -> None:
+            for raw in iter(proc.stdout.readline, b""):
+                lines.put(raw.decode("utf-8", "replace"))
+            lines.put(None)
+        reader = threading.Thread(target=pump, daemon=True)
+        reader.start()
+    stop_reason = None
+    timed_out = cancelled = False
+    eof = parser is None
+    while True:
+        if parser is not None and not eof:
+            try:
+                line = lines.get(timeout=0.2)
+            except queue.Empty:
+                line = ""
+            if line is None:
+                eof = True
+            elif line and stop_reason is None:
+                stop_reason = parser.feed(line)
+        else:
+            time.sleep(0.05 if proc.poll() is None else 0)
+        if stop_reason or (cancel is not None and cancel.is_set()) or time.monotonic() - start > timeout:
+            if not stop_reason:
+                cancelled = cancel is not None and cancel.is_set()
+                timed_out = not cancelled
+            _kill(proc)
+            break
+        if eof and proc.poll() is not None:
+            break
+    code = proc.wait()
+    if reader is not None:
+        reader.join(timeout=2)
+    result = {"argv": argv, "exit_code": 124 if timed_out else code, "duration_ms": elapsed(),
+              "timed_out": timed_out, "passed": code == 0 and not (timed_out or cancelled or stop_reason)}
+    if stop_reason:
+        result["killed"] = stop_reason
+    if cancelled:
+        result["cancelled"] = True
     return result
 
 
@@ -112,28 +179,15 @@ class _Sink:
     def write(self, *_: Any) -> None: ...
 
 
-def parse_cost(parser: str | None, raw: bytes | None, echo) -> dict[str, Any]:
-    """Provider-reported cost from captured agent stdout. Echoes the agent's answer to `echo`.
-
-    Only real receipts count: when parsing fails the cost stays unknown (None), never zero."""
-    unknown = {"currency": "USD", "amount": None, "source": "unavailable"}
-    if parser is None:
-        return unknown
-    text = (raw or b"").decode("utf-8", "replace")
-    if parser == "claude-json":
-        try:
-            data = json.loads(text.strip().splitlines()[-1] if text.strip() else "")
-        except (json.JSONDecodeError, IndexError):
-            echo.write(text)
-            return unknown
-        if isinstance(data, dict):
-            if isinstance(data.get("result"), str):
-                echo.write(data["result"].rstrip() + "\n")
-            amount = data.get("total_cost_usd")
-            if isinstance(amount, (int, float)) and amount >= 0:
-                return {"currency": "USD", "amount": float(amount), "source": "claude-code total_cost_usd"}
-        return unknown
-    raise ValueError(f"Unknown cost parser: {parser}")
+def parse_cost(parser: str | None, raw: bytes | None, echo, context: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Cost from a complete captured output (kept for callers that already have the bytes)."""
+    from .parsers import make_parser
+    p = make_parser(parser, echo, context)
+    if p is None:
+        return {"currency": "USD", "amount": None, "source": "unavailable"}
+    for line in (raw or b"").decode("utf-8", "replace").splitlines(keepends=True):
+        p.feed(line)
+    return p.finish()
 
 
 def current_task_id(root: Path) -> str | None:
@@ -149,7 +203,8 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
              external: bool = False, log=None, child_stdout: int | None = None,
              gates_judge: bool = False, child_stdin: int | None = None, cwd: Path | None = None,
              env: dict[str, str] | None = None, isolated: bool = False,
-             cost_parser: str | None = None, extra_checks: list[list[str]] | None = None) -> dict[str, Any]:
+             cost_parser: str | None = None, extra_checks: list[list[str]] | None = None,
+             parser_context: dict[str, Any] | None = None, cancel: threading.Event | None = None) -> dict[str, Any]:
     """Execute `argv`, then the configured checks, and persist evidence.
 
     external=True: the work was done elsewhere (e.g. an interactive agent session ending);
@@ -175,18 +230,23 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
                   "timed_out": False, "passed": True}
     else:
         print(f"\nV/  EXECUTE    {' '.join(shown)}", file=log, flush=True)
-        action = execute(argv, work, timeout, stdout=child_stdout, stdin=child_stdin, env=env,
-                         capture=cost_parser is not None)
+        from .parsers import make_parser
+        echo = sys.stdout if child_stdout is None else (_Sink() if child_stdout == subprocess.DEVNULL else sys.stderr)
+        parser = make_parser(cost_parser, echo, parser_context)
+        action = execute(argv, work, timeout, stdout=child_stdout, stdin=child_stdin, env=env, parser=parser,
+                         cancel=cancel)
         action["argv"] = list(shown)
-    raw_out = action.pop("_stdout", None)
-    echo = sys.stdout if child_stdout is None else (_Sink() if child_stdout == subprocess.DEVNULL else sys.stderr)
-    cost = parse_cost(cost_parser, raw_out, echo) \
-        if cost_parser and not external else {"currency": "USD", "amount": None, "source": "unavailable"}
+        if action.get("killed"):
+            print(f"V/  KILLED     {action['killed']}", file=log, flush=True)
+    cost = parser.finish() if not external and parser is not None else \
+        {"currency": "USD", "amount": None, "source": "unavailable"}
     checks: list[dict[str, Any]] = []
     # Checks must not leave Python bytecode behind: a cached .pyc from a check could mask a later
     # edit made within the same second with the same file size.
     check_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
-    run_checks = action["passed"] or (gates_judge and "error_type" not in action)
+    # killed by the stream guard or cancelled by a winning parallel attempt: nothing to verify
+    run_checks = action["passed"] or (gates_judge and "error_type" not in action
+                                      and not action.get("killed") and not action.get("cancelled"))
     if run_checks:
         for check_argv in cfg["checks"] + list(extra_checks or []):
             print(f"V/  VERIFY     {' '.join(check_argv)}", file=log, flush=True)

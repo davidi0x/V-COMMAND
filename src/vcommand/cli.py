@@ -61,6 +61,7 @@ def make_parser() -> argparse.ArgumentParser:
     ledger_add.add_argument("--why", required=True, help="Why it failed (error, failing test, reason)")
     ledger_add.add_argument("--constraint", help="Rule for the next agent (default derived from --tried/--why)")
     ledger_add.add_argument("--agent", help="Agent/model that made the attempt")
+    ledger_add.add_argument("--pattern", help="Literal code the stream guard must refuse in later edits, e.g. 'jwt.destroy('")
     ledger_sub.add_parser("list", help="List recorded failed approaches")
     frame = sub.add_parser("frame", help="Compile a context frame to hand the task to any agent/model")
     frame.add_argument("--json", action="store_true", help="Machine-readable frame")
@@ -260,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "agent":
             if args.list:
                 for name, spec in sorted(agent_templates(cfg).items()):
-                    print(f"{name:12} {' '.join(spec['argv'])}" + (f"   [cost: {spec['cost']}]" if spec["cost"] else ""))
+                    print(f"{name:12} {' '.join(spec['argv'])}" + (f"   [parser: {spec['cost']}]" if spec["cost"] else ""))
                 return 0
             if args.reset_health:
                 (root / ".vcommand" / "agent_health.json").unlink(missing_ok=True)
@@ -316,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "ledger":
             if args.ledger_action == "add":
                 e = add_ledger_entry(root, tried=args.tried, failure=args.why,
-                                     constraint=args.constraint, agent=args.agent)
+                                     constraint=args.constraint, agent=args.agent, pattern=args.pattern)
                 print(f"V/  Recorded {e['id']}: {e['constraint']}")
             else:
                 entries = read_ledger(root)

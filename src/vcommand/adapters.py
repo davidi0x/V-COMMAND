@@ -29,15 +29,20 @@ from .isolation import DEFAULT_LINKS, IsolationError, Worktree, ensure_clean_rep
 PROMPT_PLACEHOLDER = "{prompt}"
 
 # Non-interactive invocations. Override per project in .vcommand/config.json under "agents".
-# A template is an argv list containing "{prompt}", or {"argv": [...], "cost": "<parser>"}.
+# A template is an argv list containing "{prompt}", or {"argv": [...], "parser": "<output parser>"}
+# ("cost" is accepted as an older name for "parser"). See parsers.py.
 DEFAULT_AGENTS: dict[str, Any] = {
     # Codex CLI >= 0.16x: `--full-auto` was removed; workspace-write lets the agent edit the repo.
-    "codex": ["codex", "exec", "--sandbox", "workspace-write", PROMPT_PLACEHOLDER],
-    # JSON output carries the provider-reported cost (total_cost_usd); the answer is still printed.
-    "claude": {"argv": ["claude", "-p", "--output-format", "json", "--permission-mode", "acceptEdits",
-                        PROMPT_PLACEHOLDER], "cost": "claude-json"},
+    # --json streams events with token usage (USD only as an estimate from configured prices).
+    "codex": {"argv": ["codex", "exec", "--json", "--sandbox", "workspace-write", PROMPT_PLACEHOLDER],
+              "parser": "codex-jsonl"},
+    # stream-json: provider-reported cost (total_cost_usd) and the stream guard on every edit.
+    "claude": {"argv": ["claude", "-p", "--output-format", "stream-json", "--verbose",
+                        "--permission-mode", "acceptEdits", PROMPT_PLACEHOLDER], "parser": "claude-stream"},
+    # OpenCode: `opencode run <message>` (non-interactive).
+    "opencode": ["opencode", "run", PROMPT_PLACEHOLDER],
 }
-COST_PARSERS = ("claude-json",)
+from .parsers import PARSERS as COST_PARSERS  # noqa: E402
 
 AGENT_INSTRUCTIONS = """You are continuing a software task managed by V/COMMAND.
 The context frame below is the source of truth: goal, completed steps, next step,
@@ -67,13 +72,13 @@ def _spec(name: str, raw: Any) -> dict[str, Any]:
         raw = {"argv": raw}
     if not isinstance(raw, dict):
         raise ValueError(f'Invalid agent template for "{name}"')
-    argv, cost = raw.get("argv"), raw.get("cost")
+    argv, cost = raw.get("argv"), raw.get("parser", raw.get("cost"))
     if not (isinstance(argv, list) and argv and all(isinstance(a, str) and a for a in argv)):
         raise ValueError(f'Invalid agent template for "{name}"')
     if PROMPT_PLACEHOLDER not in argv:
         raise ValueError(f'Agent template "{name}" needs a "{PROMPT_PLACEHOLDER}" argument')
     if cost is not None and cost not in COST_PARSERS:
-        raise ValueError(f'Agent "{name}": unknown cost parser {cost!r} (known: {", ".join(COST_PARSERS)})')
+        raise ValueError(f'Agent "{name}": unknown output parser {cost!r} (known: {", ".join(COST_PARSERS)})')
     return {"argv": list(argv), "cost": cost}
 
 
@@ -143,6 +148,18 @@ def record_health(root: Path, agent: str, reason: str | None, cooldown_s: int) -
 def open_circuits(root: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
     now = time.time() if now is None else now
     return {a: h for a, h in load_health(root).items() if isinstance(h, dict) and h.get("open_until", 0) > now}
+
+
+def parser_context(root: Path, cfg: dict[str, Any], argv: list[str]) -> dict[str, Any]:
+    """What output parsers need: banned patterns (ledger + config) and price table for estimates."""
+    from .state import read_ledger
+    banned = [{"pattern": e["pattern"], "reason": e.get("failure", "")} for e in read_ledger(root) if e.get("pattern")]
+    banned += [b for b in cfg.get("guard", {}).get("banned", []) if isinstance(b, dict) and b.get("pattern")]
+    model = None
+    for flag in ("-m", "--model"):
+        if flag in argv and argv.index(flag) + 1 < len(argv):
+            model = argv[argv.index(flag) + 1]
+    return {"banned": banned, "prices": cfg.get("prices", {}), "model": model}
 
 
 def _task_spend(root: Path) -> tuple[float, int]:
@@ -232,7 +249,7 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
         print(f"\nV/  HANDOFF    attempt {n}/{attempts} -> {name}", file=out, flush=True)
         common = dict(timeout=timeout, check_timeout=check_timeout, agent=name, record_argv=shown, gates_judge=True,
                       child_stdin=subprocess.DEVNULL, env=agent_env(root, extra_env), cost_parser=spec["cost"],
-                      extra_checks=extra_checks)
+                      extra_checks=extra_checks, parser_context=parser_context(root, cfg, spec["argv"]))
         if isolate:
             with Worktree(root, head, links) as wt:
                 print(f"V/  ISOLATE    worktree at {head[:12]} ({wt.path})", file=out, flush=True)

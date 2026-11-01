@@ -175,8 +175,9 @@ class ClaudeHookTests(unittest.TestCase):
 
     def test_codex_template_uses_supported_flags(self):
         # `--full-auto` was removed from `codex exec` (verified against codex-cli 0.166).
-        self.assertNotIn("--full-auto", DEFAULT_AGENTS["codex"])
-        self.assertEqual(DEFAULT_AGENTS["codex"][:4], ["codex", "exec", "--sandbox", "workspace-write"])
+        argv = DEFAULT_AGENTS["codex"]["argv"]
+        self.assertNotIn("--full-auto", argv)
+        self.assertEqual(argv[:5], ["codex", "exec", "--json", "--sandbox", "workspace-write"])
 
     def test_cli_hook_fails_open_on_bad_input(self):
         cwd = os.getcwd()
