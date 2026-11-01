@@ -14,22 +14,29 @@ Standard library only.
 """
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from pathlib import Path
+import io
 import json
 import os
+import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from typing import Any, TextIO
 
 from .core import CONFIG_DIR, load_config, utc_now
-from .state import start_task, set_focus, read_ledger
+from .state import start_task, set_focus, read_ledger, _LEDGER_LOCK
+from .slice import parse_focus
 from .isolation import IsolationError, ensure_clean_repo, stage, work_changes
-from .adapters import STOPPED_FOR_HUMAN, run_agents
+from .adapters import STOPPED_FOR_HUMAN, run_agents, load_health, _HEALTH_LOCK
 
 QUESTION_FILE = "VCOMMAND_QUESTION.md"
 TASK_ENV = "VCOMMAND_QUEUE_TASK"
+QUEUE_ROOT_ENV = "VCOMMAND_QUEUE_ROOT"   # the project whose queue.json `vcmd ask` must update
+_QUEUE_LOCK = threading.RLock()            # queue.json read-modify-write from parallel workers
 QUEUE_INSTRUCTION = (f"If you cannot finish without a decision from the developer, do not guess: create "
                      f"{QUESTION_FILE} with the question on the first line and each option on its own "
                      f"line starting with '- ', then stop.")
@@ -82,11 +89,12 @@ def add_task(root: Path, goal: str, *, focus: list[str] | None = None, gates: li
 
 
 def ask(root: Path, task_id: str, question: str, options: list[str]) -> dict[str, Any]:
-    data = load_queue(root)
-    task = _find(data, task_id)
-    task.update(status="frozen", question=" ".join(question.split())[:500],
-                options=[" ".join(o.split())[:200] for o in options][:6])
-    _save(root, data)
+    with _QUEUE_LOCK:
+        data = load_queue(root)
+        task = _find(data, task_id)
+        task.update(status="frozen", question=" ".join(question.split())[:500],
+                    options=[" ".join(o.split())[:200] for o in options][:6])
+        _save(root, data)
     return task
 
 
@@ -150,81 +158,182 @@ def parse_until(text: str, now: datetime | None = None) -> datetime:
     return deadline if deadline > now else deadline + timedelta(days=1)
 
 
+def _worker_root(root: Path, task_id: str) -> Path:
+    return root / CONFIG_DIR / "workers" / task_id
+
+
+def _prepare_worker(root: Path, task: dict[str, Any]) -> tuple[Path, int]:
+    """Private V/COMMAND state for one queue task (its own task.json / frame), seeded from the project."""
+    wroot = _worker_root(root, task["id"])
+    shutil.rmtree(wroot, ignore_errors=True)
+    (wroot / CONFIG_DIR / "runs").mkdir(parents=True)
+    for name in ("config.json", "ledger.jsonl", "agent_health.json"):
+        src = root / CONFIG_DIR / name
+        if src.exists():
+            shutil.copy2(src, wroot / CONFIG_DIR / name)
+    goal = task["goal"] + "".join(f" Developer decision — {a['question']}: {a['answer']}" for a in task["answers"])
+    start_task(wroot, goal)
+    if task["focus"]:
+        set_focus(wroot, task["focus"])
+    return wroot, len(read_ledger(wroot))
+
+
+def _merge_worker(root: Path, wroot: Path, ledger_seen: int) -> list[dict[str, Any]]:
+    """Fold the worker's new ledger entries, evidence and provider health back into the project."""
+    new_entries = read_ledger(wroot)[ledger_seen:]
+    if new_entries:
+        with _LEDGER_LOCK, (root / CONFIG_DIR / "ledger.jsonl").open("a", encoding="utf-8") as handle:
+            for e in new_entries:
+                handle.write(json.dumps(e, ensure_ascii=False) + "\n")
+    (root / CONFIG_DIR / "runs").mkdir(parents=True, exist_ok=True)
+    for run in (wroot / CONFIG_DIR / "runs").glob("*.json"):
+        shutil.move(str(run), str(root / CONFIG_DIR / "runs" / run.name))
+    worker_health = load_health(wroot)
+    if worker_health:
+        with _HEALTH_LOCK:
+            merged = load_health(root)
+            for agent, h in worker_health.items():
+                if h.get("open_until", 0) >= merged.get(agent, {}).get("open_until", 0):
+                    merged[agent] = h
+            (root / CONFIG_DIR / "agent_health.json").write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    shutil.rmtree(wroot, ignore_errors=True)
+    return new_entries
+
+
+def _task_files(task: dict[str, Any]) -> set[str]:
+    return {parse_focus(f)[0] for f in task["focus"]}
+
+
 def run_queue(root: Path, agents: list[str], *, attempts: int | None = None, max_tasks: int | None = None,
               until: str | None = None, budget_usd: float | None = None, timeout: int = 3600,
-              check_timeout: int = 600, out: TextIO | None = None) -> int:
+              check_timeout: int = 600, out: TextIO | None = None, jobs: int = 1) -> int:
+    """Process the queue with up to `jobs` tasks in parallel.
+
+    Tasks whose focus files overlap never run at the same time. Applying a verified patch and
+    committing it happen under one lock, so history stays linear; a patch that no longer applies
+    (another task changed the same lines) sends the task back to the queue once, from the new HEAD."""
     out = out or sys.stdout
+    if jobs < 1:
+        raise ValueError("--jobs must be at least 1")
     deadline = parse_until(until) if until else None
     ensure_clean_repo(root)
-    data = load_queue(root)
-    for t in data["tasks"]:
-        if t["status"] == "running":  # a previous run was interrupted
-            t.update(status="pending", note="restarted after an interrupted run")
-    _save(root, data)
-    done = 0
-    while True:
+    with _QUEUE_LOCK:
         data = load_queue(root)
-        for t in _blocked(data):
-            t.update(status="blocked", note="a dependency failed, is frozen or blocked")
+        for t in data["tasks"]:
+            if t["status"] == "running":  # a previous run was interrupted
+                t.update(status="pending", note="restarted after an interrupted run")
         _save(root, data)
-        ready = _runnable(data)
-        if not ready:
-            break
-        if max_tasks is not None and done >= max_tasks:
-            print(f"V/  QUEUE      stopping: --max-tasks {max_tasks} reached", file=out)
-            break
-        if deadline and datetime.now() >= deadline:
-            print(f"V/  QUEUE      stopping: --until {until} reached", file=out)
-            break
-        task = ready[0]
-        task.update(status="running")
-        _save(root, data)
-        print(f"\nV/  QUEUE      {task['id']}: {task['goal']}", file=out, flush=True)
-        goal = task["goal"] + "".join(f"\nDeveloper decision — {a['question']}: {a['answer']}" for a in task["answers"])
-        start_task(root, goal)
-        if task["focus"]:
-            set_focus(root, task["focus"])
-        ledger_before = len(read_ledger(root))
+    commit_lock = threading.Lock()
+    print_lock = threading.Lock()
+    locked: set[str] = set()
 
-        def stop_check(work: Path, task_id: str = task["id"]) -> str | None:
-            q = _read_question_file(work)
+    def say(text: str) -> None:
+        with print_lock:
+            print(text, file=out, flush=True)
+
+    def work(task: dict[str, Any]) -> None:
+        wroot, seen = _prepare_worker(root, task)
+        state = {"commit": None, "conflict": None}
+
+        def apply_fn(wt) -> list[str]:
+            with commit_lock:
+                try:
+                    changed = wt.apply_to_root()
+                except IsolationError as error:
+                    state["conflict"] = str(error)
+                    raise
+                with _QUEUE_LOCK:
+                    current = _find(load_queue(root), task["id"])
+                state["commit"] = _commit(root, current)
+                return changed
+
+        def stop_check(work_dir: Path) -> str | None:
+            q = _read_question_file(work_dir)
             if q:
-                ask(root, task_id, q[0], q[1])
+                ask(root, task["id"], q[0], q[1])
                 return f"agent asked: {q[0]}"
-            current = _find(load_queue(root), task_id)
-            if current["status"] == "frozen":
-                return f"agent asked: {current['question']}"
-            return None
+            with _QUEUE_LOCK:
+                current = _find(load_queue(root), task["id"])
+            return f"agent asked: {current['question']}" if current["status"] == "frozen" else None
 
+        with commit_lock:
+            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
+        buffer = io.StringIO()
         try:
-            code = run_agents(root, agents, attempts=attempts, instruction=QUEUE_INSTRUCTION, timeout=timeout,
-                              check_timeout=check_timeout, out=out, isolate=True, budget_usd=budget_usd,
-                              extra_checks=task["gates"], extra_env={TASK_ENV: task["id"]}, stop_check=stop_check)
+            code = run_agents(wroot, agents, attempts=attempts, instruction=QUEUE_INSTRUCTION, timeout=timeout,
+                              check_timeout=check_timeout, out=buffer if jobs > 1 else out, isolate=True,
+                              budget_usd=budget_usd, extra_checks=task["gates"], stop_check=stop_check,
+                              extra_env={TASK_ENV: task["id"], QUEUE_ROOT_ENV: str(root.resolve())},
+                              repo=root, head=head, apply_fn=apply_fn)
         except (IsolationError, ValueError) as error:
             code = 1
-            print(f"V/  Error: {error}", file=out)
-        data = load_queue(root)
-        current = _find(data, task["id"])
-        if code == STOPPED_FOR_HUMAN or current["status"] == "frozen":
-            current["status"] = "frozen"
-        elif code == 0:
-            try:
-                current["commit"] = _commit(root, current)
-                current["status"] = "done"
-            except IsolationError as error:
-                current.update(status="failed", note=str(error))
+            buffer.write(f"V/  Error: {error}\n")
+        new_entries = _merge_worker(root, wroot, seen)
+        with _QUEUE_LOCK:
+            data = load_queue(root)
+            current = _find(data, task["id"])
+            if code == STOPPED_FOR_HUMAN or current["status"] == "frozen":
+                current["status"] = "frozen"
+            elif code == 0 and state["commit"]:
+                current.update(status="done", commit=state["commit"])
+            elif state["conflict"] and not current.get("conflict_retried"):
+                current.update(status="pending", conflict_retried=True,
+                               note="patch conflicted with a concurrently committed task; re-queued from new HEAD")
+            elif code == 0:
+                current.update(status="done", commit="(no changes)")
+            else:
+                current.update(status="failed", note=state["conflict"] or
+                               (new_entries[-1]["failure"] if new_entries else "gates not passed"))
+            current["finished_at_utc"] = utc_now() if current["status"] != "pending" else None
+            _save(root, data)
+            status, commit = current["status"], current["commit"]
+        if jobs > 1:
+            say(f"\n--- {task['id']} ---\n{buffer.getvalue().rstrip()}")
+        say(f"V/  QUEUE      {task['id']} -> {status}" + (f" ({commit})" if commit else ""))
+
+    started = 0
+    stop_note_shown = False
+    futures: dict[Any, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        while True:
+            with _QUEUE_LOCK:
+                data = load_queue(root)
+                for t in _blocked(data):
+                    t.update(status="blocked", note="a dependency failed, is frozen or blocked")
                 _save(root, data)
-                print(f"V/  QUEUE      {error}; stopping (working tree is not clean)", file=out)
-                return 1
-        else:
-            failures = read_ledger(root)[ledger_before:]
-            current.update(status="failed", note=(failures[-1]["failure"] if failures else "gates not passed"))
-        current["finished_at_utc"] = utc_now()
-        _save(root, data)
-        print(f"V/  QUEUE      {task['id']} -> {current['status']}"
-              + (f" ({current['commit']})" if current["commit"] else ""), file=out, flush=True)
-        done += 1
-    print("\n" + render_report(load_queue(root)), file=out)
+                ready = [t for t in _runnable(data) if not (_task_files(t) & locked)]
+                while ready and len(futures) < jobs:
+                    reason = (f"--max-tasks {max_tasks} reached" if max_tasks is not None and started >= max_tasks
+                              else f"--until {until} reached" if deadline and datetime.now() >= deadline else None)
+                    if reason:
+                        if not stop_note_shown:
+                            say(f"V/  QUEUE      not starting new tasks: {reason}")
+                            stop_note_shown = True
+                        break
+                    task = ready.pop(0)
+                    if _task_files(task) & locked:
+                        continue
+                    _find(data, task["id"])["status"] = "running"
+                    _save(root, data)
+                    locked |= _task_files(task)
+                    started += 1
+                    say(f"\nV/  QUEUE      {task['id']}: {task['goal']}"
+                        + (f"  [locks: {', '.join(sorted(_task_files(task)))}]" if jobs > 1 and task["focus"] else ""))
+                    futures[pool.submit(work, task)] = task
+            if not futures:
+                break
+            finished, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for future in finished:
+                task = futures.pop(future)
+                locked -= _task_files(task)
+                error = future.exception()
+                if error is not None:
+                    say(f"V/  QUEUE      {task['id']} crashed: {type(error).__name__}: {error}")
+                    with _QUEUE_LOCK:
+                        data = load_queue(root)
+                        _find(data, task["id"]).update(status="failed", note=f"internal error: {error}")
+                        _save(root, data)
+    say("\n" + render_report(load_queue(root)))
     return 0
 
 
@@ -258,3 +367,8 @@ def render_report(data: dict[str, Any]) -> str:
 
 def current_queue_task() -> str | None:
     return os.environ.get(TASK_ENV)
+
+
+def current_queue_root(default: Path) -> Path:
+    env = os.environ.get(QUEUE_ROOT_ENV)
+    return Path(env) if env else default

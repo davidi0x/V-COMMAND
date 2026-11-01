@@ -93,3 +93,58 @@ class IsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SLOW_FIX = "import pathlib, time; time.sleep(1.5); pathlib.Path('fixed.txt').write_text('slow')"
+FAST_FIX = "import pathlib; pathlib.Path('fixed.txt').write_text('fast')"
+HANG = "import time; time.sleep(60)"
+
+
+@unittest.skipUnless(shutil.which("git"), "git required")
+class RaceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        git(self.root, "init", "-q")
+        (self.root / ".gitignore").write_text(".vcommand/\n")
+        (self.root / "app.txt").write_text("v1\n")
+        git(self.root, "add", ".")
+        git(self.root, "commit", "-q", "-m", "init")
+        init_project(self.root)
+        cfg = load_config(self.root)
+        cfg["checks"] = [GATE]
+        cfg["agents"] = {"slow": [sys.executable, "-c", SLOW_FIX, "{prompt}"],
+                         "fast": [sys.executable, "-c", FAST_FIX, "{prompt}"],
+                         "hang": [sys.executable, "-c", HANG, "{prompt}"],
+                         "messy": [sys.executable, "-c", MESSY, "{prompt}"]}
+        save_config(self.root, cfg)
+        start_task(self.root, "Create fixed.txt")
+
+    def race(self, *names):
+        from vcommand.adapters import run_race
+        import time
+        start = time.monotonic()
+        with contextlib.redirect_stdout(io.StringIO()):
+            out = io.StringIO()
+            code = run_race(self.root, list(names), out=out)
+        return code, out.getvalue(), time.monotonic() - start
+
+    def test_first_verified_wins_and_hanging_agent_is_killed(self):
+        code, out, elapsed = self.race("hang", "slow", "fast")
+        self.assertEqual(code, 0)
+        self.assertEqual((self.root / "fixed.txt").read_text(), "fast")
+        self.assertLess(elapsed, 30, "hanging agent was not cancelled")
+        self.assertIn("fast: WINNER", out)
+        self.assertIn("hang: cancelled", out)
+        out_list = subprocess.run(["git", "worktree", "list"], cwd=self.root, stdout=subprocess.PIPE, text=True).stdout
+        self.assertEqual(len(out_list.strip().splitlines()), 1)
+
+    def test_no_winner_records_failures(self):
+        cfg = load_config(self.root)
+        cfg["agents"]["messy2"] = cfg["agents"]["messy"]
+        save_config(self.root, cfg)
+        code, out, _ = self.race("messy", "messy2")
+        self.assertEqual(code, 1)
+        self.assertEqual(len(read_ledger(self.root)), 2)
+        self.assertFalse((self.root / "junk.txt").exists())

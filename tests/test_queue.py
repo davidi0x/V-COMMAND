@@ -126,3 +126,84 @@ class QueueTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# "write <file> <text>": logs start/end times (for overlap checks), sleeps, writes the file.
+PARALLEL_WORKER = r"""
+import sys, re, os, time, json, pathlib
+goal = sys.argv[1].split('## Goal\n', 1)[1].split('\n', 1)[0]
+m = re.search(r'write (\S+) (\S+)', goal)
+log = os.environ['QTEST_LOG']
+t0 = time.time(); time.sleep(1.0)
+pathlib.Path(m.group(1)).write_text(m.group(2) + '\n')
+with open(log, 'a') as f:
+    f.write(json.dumps({'goal': goal, 'start': t0, 'end': time.time()}) + '\n')
+"""
+
+
+@unittest.skipUnless(shutil.which("git"), "git required")
+class ParallelQueueTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve() / "repo"
+        self.root.mkdir()
+        self.log = Path(self.temp.name) / "times.jsonl"
+        os.environ["QTEST_LOG"] = str(self.log)
+        self.addCleanup(os.environ.pop, "QTEST_LOG", None)
+        git(self.root, "init", "-q")
+        git(self.root, "config", "user.name", "Test")
+        git(self.root, "config", "user.email", "test@example.com")
+        (self.root / ".gitignore").write_text(".vcommand/\n")
+        (self.root / "shared.txt").write_text("base\n")
+        git(self.root, "add", ".")
+        git(self.root, "commit", "-q", "-m", "init")
+        init_project(self.root)
+        cfg = load_config(self.root)
+        cfg["agents"] = {"pw": [sys.executable, "-c", PARALLEL_WORKER, "{prompt}"]}
+        save_config(self.root, cfg)
+
+    def run_q(self, jobs):
+        import time
+        start = time.monotonic()
+        with contextlib.redirect_stdout(io.StringIO()):
+            out = io.StringIO()
+            run_queue(self.root, ["pw"], out=out, jobs=jobs)
+        return time.monotonic() - start, out.getvalue()
+
+    def times(self):
+        import json
+        return {json.loads(l)["goal"]: json.loads(l) for l in self.log.read_text().splitlines()}
+
+    def test_parallel_is_faster_and_commits_linear(self):
+        for i in range(4):
+            add_task(self.root, f"write f{i}.txt v{i}", gates=[exists_gate(f"f{i}.txt")])
+        elapsed, _ = self.run_q(jobs=4)
+        self.assertTrue(all(t["status"] == "done" for t in load_queue(self.root)["tasks"]))
+        commits = git(self.root, "log", "--format=%s").splitlines()
+        self.assertEqual(sum(c.startswith("vcmd queue:") for c in commits), 4)
+        spans = list(self.times().values())
+        overlap = max(s["start"] for s in spans) < min(s["end"] for s in spans)
+        self.assertTrue(overlap, "tasks did not run concurrently")
+        self.assertFalse((self.root / ".vcommand" / "workers").exists() and
+                         any((self.root / ".vcommand" / "workers").iterdir()))
+        self.assertEqual(git(self.root, "status", "--porcelain"), "")
+
+    def test_focus_lock_prevents_overlap(self):
+        (self.root / "a.py").write_text("x = 1\n")
+        git(self.root, "add", "a.py")
+        git(self.root, "commit", "-q", "-m", "a")
+        add_task(self.root, "write g1.txt one", focus=["a.py"], gates=[exists_gate("g1.txt")])
+        add_task(self.root, "write g2.txt two", focus=["a.py"], gates=[exists_gate("g2.txt")])
+        self.run_q(jobs=2)
+        t = self.times()
+        a, b = t["write g1.txt one"], t["write g2.txt two"]
+        self.assertTrue(a["end"] <= b["start"] or b["end"] <= a["start"], "tasks on the same file overlapped")
+
+    def test_conflict_requeues_and_finishes(self):
+        add_task(self.root, "write shared.txt first", gates=[exists_gate("shared.txt")])
+        add_task(self.root, "write shared.txt second", gates=[exists_gate("shared.txt")])
+        _, out = self.run_q(jobs=2)
+        tasks = load_queue(self.root)["tasks"]
+        self.assertTrue(all(t["status"] == "done" for t in tasks), out)
+        self.assertTrue(any(t.get("conflict_retried") for t in tasks), "expected one conflict and re-queue")

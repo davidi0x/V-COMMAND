@@ -12,11 +12,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 
 from .core import CONFIG_DIR
 
 DEFAULT_LINKS = ("node_modules",)          # heavy, untracked dependency dirs shared via symlink
 TOOL_STATE = (CONFIG_DIR + "/", ".claude/", ".codex/")
+
+
+_GIT_ADMIN_LOCK = threading.Lock()  # worktree add/remove/prune touch shared .git metadata
 
 
 class IsolationError(RuntimeError):
@@ -90,7 +94,8 @@ class Worktree:
         self.extra_excludes: tuple[str, ...] = ("VCOMMAND_QUESTION.md",)  # queue signal, never product code
 
     def __enter__(self) -> "Worktree":
-        proc = _git(["worktree", "add", "--detach", str(self.path), self.head], self.root)
+        with _GIT_ADMIN_LOCK:
+            proc = _git(["worktree", "add", "--detach", str(self.path), self.head], self.root)
         if proc.returncode != 0:
             shutil.rmtree(self._parent, ignore_errors=True)
             raise IsolationError(f"git worktree add failed: {_err(proc)}")
@@ -105,9 +110,10 @@ class Worktree:
         self.remove()
 
     def remove(self) -> None:
-        _git(["worktree", "remove", "--force", str(self.path)], self.root)
-        shutil.rmtree(self._parent, ignore_errors=True)
-        _git(["worktree", "prune"], self.root)
+        with _GIT_ADMIN_LOCK:
+            _git(["worktree", "remove", "--force", str(self.path)], self.root)
+            shutil.rmtree(self._parent, ignore_errors=True)
+            _git(["worktree", "prune"], self.root)
 
     def patch(self) -> bytes:
         """Binary diff of everything the attempt changed, excluding tool state and linked dirs."""

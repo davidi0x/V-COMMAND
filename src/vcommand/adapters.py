@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, TextIO
 
@@ -134,7 +135,15 @@ def provider_failure_reason(item: dict[str, Any]) -> str | None:
     return None
 
 
+_HEALTH_LOCK = threading.Lock()
+
+
 def record_health(root: Path, agent: str, reason: str | None, cooldown_s: int) -> None:
+    with _HEALTH_LOCK:
+        _record_health(root, agent, reason, cooldown_s)
+
+
+def _record_health(root: Path, agent: str, reason: str | None, cooldown_s: int) -> None:
     data = load_health(root)
     if reason is None:
         data.pop(agent, None)
@@ -194,7 +203,7 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
                timeout: int = 3600, check_timeout: int = 600, out: TextIO | None = None,
                isolate: bool = False, budget_usd: float | None = None,
                extra_checks: list[list[str]] | None = None, extra_env: dict[str, str] | None = None,
-               stop_check=None) -> int:
+               stop_check=None, repo: Path | None = None, head: str | None = None, apply_fn=None) -> int:
     """Run agents in order (cycling) until the gates pass. Returns a CLI exit code.
 
     isolate=True: every attempt runs in a fresh git worktree at HEAD; only a verified attempt's
@@ -203,7 +212,11 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
     budget_usd (or config budget.max_usd_per_task): stop before an attempt once the known,
     provider-reported spend on the current task reaches the limit.
     stop_check(work_dir) -> reason | None is called after each attempt, before anything is applied;
-    a reason stops the run with STOPPED_FOR_HUMAN and discards that attempt (used by the queue)."""
+    a reason stops the run with STOPPED_FOR_HUMAN and discards that attempt (used by the queue).
+    repo: the git repository when V/COMMAND state lives elsewhere (`root`), e.g. parallel queue workers;
+    head: base commit for isolated attempts (skips the clean-tree check, the caller guarantees it);
+    apply_fn(worktree) -> changed paths: replaces the default "apply patch to repo" step."""
+    repo = repo or root
     out = out or sys.stdout
     cfg = load_config(root)
     templates = agent_templates(cfg)
@@ -216,7 +229,8 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
     if budget is not None and (not isinstance(budget, (int, float)) or budget <= 0):
         raise ValueError("Budget must be a positive number of USD")
     cooldown = int(cfg.get("failover", {}).get("cooldown_s", DEFAULT_COOLDOWN_S))
-    head = ensure_clean_repo(root) if isolate else None
+    if isolate and head is None:
+        head = ensure_clean_repo(repo)
     links = cfg.get("isolation", {}).get("link", list(DEFAULT_LINKS))
     if not cfg["checks"] and not extra_checks:
         print("V/  WARNING    no checks configured: the result can only be 'unverified' and no handoff will happen",
@@ -241,7 +255,7 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
         name = available[cursor % len(available)]
         cursor += 1
         spec = templates[name]
-        frame = build_frame(root)
+        frame = build_frame(root, code_root=repo)
         prompt = build_prompt(frame, instruction)
         argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
         shown = [f"<context frame {frame['continuity_token'][:23]}>" if a == PROMPT_PLACEHOLDER else a
@@ -251,7 +265,7 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
                       child_stdin=subprocess.DEVNULL, env=agent_env(root, extra_env), cost_parser=spec["cost"],
                       extra_checks=extra_checks, parser_context=parser_context(root, cfg, spec["argv"]))
         if isolate:
-            with Worktree(root, head, links) as wt:
+            with Worktree(repo, head, links) as wt:
                 print(f"V/  ISOLATE    worktree at {head[:12]} ({wt.path})", file=out, flush=True)
                 for warning in wt.warnings:
                     print(f"V/  WARNING    {warning}", file=out)
@@ -264,7 +278,7 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
                     return STOPPED_FOR_HUMAN
                 if item["status"] in {"verified_by_configured_checks", "unverified"}:
                     try:
-                        changed = wt.apply_to_root()
+                        changed = apply_fn(wt) if apply_fn else wt.apply_to_root()
                     except IsolationError as error:
                         print(f"V/  Error: {error}. Verified changes were not applied.", file=out)
                         return 1
@@ -296,6 +310,98 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
     print(f"V/  STOPPED    gates still failing after {attempts} attempt(s); see `vcmd frame` and `vcmd ledger list`",
           file=out)
     return 1
+
+
+def run_race(root: Path, agents: list[str], *, instruction: str | None = None, timeout: int = 3600,
+             check_timeout: int = 600, out: TextIO | None = None, budget_usd: float | None = None) -> int:
+    """Speculative execution: all agents start at once on the same frame, each in its own worktree.
+
+    The first attempt whose gates pass is applied; the others are killed (cancelled) and discarded.
+    Failed attempts go to the ledger. Costs of every started attempt are recorded."""
+    out = out or sys.stdout
+    cfg = load_config(root)
+    templates = agent_templates(cfg)
+    if len(agents) < 2:
+        raise ValueError("--race needs at least two agents")
+    for name in agents:
+        resolve_agent(templates, name)
+    budget = budget_usd if budget_usd is not None else cfg.get("budget", {}).get("max_usd_per_task")
+    if budget is not None:
+        spent, _ = _task_spend(root)
+        if spent >= budget:
+            print(f"V/  BUDGET     stopped: ${spent:.4f} of ${budget:.4f} known spend on this task", file=out)
+            return 1
+    cooldown = int(cfg.get("failover", {}).get("cooldown_s", DEFAULT_COOLDOWN_S))
+    head = ensure_clean_repo(root)
+    links = cfg.get("isolation", {}).get("link", list(DEFAULT_LINKS))
+    frame = build_frame(root)
+    prompt = build_prompt(frame, instruction)
+    cancel = threading.Event()
+    lock = threading.Lock()
+    outcome: dict[str, Any] = {"winner": None, "changed": [], "error": None}
+    results: dict[str, dict[str, Any]] = {}
+    print(f"V/  RACE       {', '.join(agents)} on frame {frame['continuity_token'][:23]} (first verified wins)",
+          file=out, flush=True)
+
+    def attempt(name: str) -> None:
+        spec = templates[name]
+        argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
+        shown = [f"<context frame {frame['continuity_token'][:23]}>" if a == PROMPT_PLACEHOLDER else a
+                 for a in spec["argv"]]
+        try:
+            with Worktree(root, head, links) as wt:
+                item = run_task(root, argv, timeout=timeout, check_timeout=check_timeout, agent=name,
+                                record_argv=shown, gates_judge=True, child_stdin=subprocess.DEVNULL,
+                                child_stdout=subprocess.DEVNULL, env=agent_env(root), cost_parser=spec["cost"],
+                                parser_context=parser_context(root, cfg, spec["argv"]), cwd=wt.path,
+                                isolated=True, cancel=cancel, log=_Quiet())
+                results[name] = item
+                if item["status"] == "verified_by_configured_checks":
+                    with lock:
+                        if outcome["winner"] is None:
+                            outcome["winner"] = name
+                            cancel.set()
+                            try:
+                                outcome["changed"] = wt.apply_to_root()
+                            except IsolationError as error:
+                                outcome["error"] = str(error)
+        except IsolationError as error:
+            results[name] = {"status": "failed", "action": {"error_type": "IsolationError"}, "error": str(error)}
+
+    threads = [threading.Thread(target=attempt, args=(name,), daemon=True) for name in agents]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    for name in agents:
+        item = results.get(name)
+        if item is None or "id" not in item:
+            print(f"V/  RACE       {name}: could not start ({(item or {}).get('error', 'unknown error')})", file=out)
+            continue
+        cost = item["cost"]["amount"]
+        label = ("WINNER" if name == outcome["winner"] else
+                 "cancelled" if item["action"].get("cancelled") else item["status"])
+        print(f"V/  RACE       {name}: {label}, {item['action']['duration_ms']} ms"
+              + (f", ${cost:.4f}" if cost is not None else ", cost unknown"), file=out)
+        record_health(root, name, None if item["action"].get("cancelled") else provider_failure_reason(item), cooldown)
+        if name != outcome["winner"] and not item["action"].get("cancelled"):
+            changed = _changed_files(item)
+            record_run_failure(root, item, agent=name, note=f"{name} (race)" +
+                               (f" changing {', '.join(changed)}" if changed else " (no file changes)"))
+    if outcome["error"]:
+        print(f"V/  Error: {outcome['error']}. Verified changes were not applied.", file=out)
+        return 1
+    if outcome["winner"]:
+        print(f"V/  APPLIED    {outcome['winner']}: {len(outcome['changed'])} file(s): "
+              f"{', '.join(outcome['changed'][:8])}", file=out)
+        return 0
+    print("V/  RACE       no attempt passed the gates; see `vcmd ledger list`", file=out)
+    return 1
+
+
+class _Quiet:
+    def write(self, *_: Any) -> None: ...
+    def flush(self) -> None: ...
 
 
 # ---------------------------------------------------------------- agent hooks (Claude Code, Codex)

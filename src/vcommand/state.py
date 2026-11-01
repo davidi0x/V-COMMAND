@@ -12,6 +12,7 @@ import hashlib
 import json
 import subprocess
 import shutil
+import threading
 import uuid
 from typing import Any
 
@@ -19,6 +20,7 @@ from .core import CONFIG_DIR, list_evidence, load_config, git_status, utc_now
 from .slice import build_slice, parse_focus, render_slice
 
 FRAME_VERSION = 1
+_LEDGER_LOCK = threading.Lock()  # parallel attempts / queue workers append from several threads
 MAX_TEXT = 500           # per ledger field; keeps frames small and limits accidental leakage
 MAX_LEDGER_IN_FRAME = 20
 MAX_STATUS_LINES = 50
@@ -140,7 +142,7 @@ def add_ledger_entry(root: Path, *, tried: str, failure: str, constraint: str | 
     }
     path = ledger_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
+    with _LEDGER_LOCK, path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
     return entry
 
@@ -223,13 +225,16 @@ def continuity_token(frame: dict[str, Any]) -> str:
     return "sha256:" + digest
 
 
-def build_frame(root: Path) -> dict[str, Any]:
+def build_frame(root: Path, code_root: Path | None = None) -> dict[str, Any]:
+    """`root` holds V/COMMAND state; `code_root` (default: root) is the repository the code slice and
+    git information come from — they differ for parallel queue workers."""
+    code = code_root or root
     cfg = load_config(root)
     task = load_task(root)
     ledger = read_ledger(root)
     runs = list_evidence(root)
     last = runs[-1] if runs else None
-    status = git_status(root)
+    status = git_status(code)
     frame: dict[str, Any] = {
         "frame_version": FRAME_VERSION,
         "generated_at_utc": utc_now(),
@@ -239,7 +244,7 @@ def build_frame(root: Path) -> dict[str, Any]:
             "next_step": task.get("next_step"),
         },
         "focus": None if task is None else task.get("focus") or None,
-        "code_slice": build_slice(root, task["focus"]) if task and task.get("focus") else None,
+        "code_slice": build_slice(code, task["focus"]) if task and task.get("focus") else None,
         "acceptance_gates": [" ".join(c) for c in cfg["checks"]],
         "negative_knowledge": [
             {k: e.get(k) for k in ("id", "agent", "tried", "failure", "constraint")}
@@ -252,7 +257,7 @@ def build_frame(root: Path) -> dict[str, Any]:
             "failed_checks": [" ".join(c["argv"]) for c in last["checks"] if not c["passed"]],
         },
         "repository": {
-            "head": _git_head(root),
+            "head": _git_head(code),
             "working_tree": None if status is None else status[:MAX_STATUS_LINES],
             "working_tree_omitted": 0 if status is None else max(0, len(status) - MAX_STATUS_LINES),
         },

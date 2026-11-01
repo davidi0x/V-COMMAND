@@ -78,6 +78,8 @@ def make_parser() -> argparse.ArgumentParser:
     agent.add_argument("--list", action="store_true", help="Show configured agent command templates")
     agent.add_argument("--isolate", action="store_true",
                        help="Run each attempt in a fresh git worktree; apply changes only when gates pass")
+    agent.add_argument("--race", action="store_true",
+                       help="Start all agents at once in separate worktrees; first verified wins, others are killed")
     agent.add_argument("--budget", type=float, help="Stop when known provider-reported spend on this task reaches USD")
     agent.add_argument("--health", action="store_true", help="Show agent circuit-breaker state")
     agent.add_argument("--reset-health", action="store_true", help="Close all agent circuits")
@@ -112,6 +114,7 @@ def make_parser() -> argparse.ArgumentParser:
     q_run.add_argument("--until", help="Do not start new tasks after HH:MM (local time)")
     q_run.add_argument("--budget", type=float, help="Per-task budget in USD (known provider-reported spend)")
     q_run.add_argument("--timeout", type=int, default=3600)
+    q_run.add_argument("--jobs", type=int, default=1, help="Tasks in parallel (focus files are locked)")
     q_ans = queue_sub.add_parser("answer", help="Answer a frozen task's question; it returns to the queue")
     q_ans.add_argument("id")
     q_ans.add_argument("text")
@@ -169,13 +172,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"V/  {t['id']} back in the queue with your decision")
                 return 0
             return q.run_queue(root, args.agents, attempts=args.attempts, max_tasks=args.max_tasks,
-                               until=args.until, budget_usd=args.budget, timeout=args.timeout)
+                               until=args.until, budget_usd=args.budget, timeout=args.timeout, jobs=args.jobs)
         if args.command == "ask":
             from . import queue as q
             task_id = q.current_queue_task()
             if not task_id:
                 raise ValueError("vcmd ask works inside a queue run (VCOMMAND_QUEUE_TASK is not set)")
-            q.ask(root, task_id, args.question, args.option)
+            q.ask(q.current_queue_root(root), task_id, args.question, args.option)
             print(f"V/  Task {task_id} frozen until the developer answers. Stop working on it now.")
             return 0
         if args.command == "hw":
@@ -277,6 +280,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.timeout < 1 or args.check_timeout < 1:
                 raise ValueError("Timeout must be a positive number of seconds")
+            if args.race:
+                from .adapters import run_race
+                return run_race(root, args.agents, instruction=args.instruction, timeout=args.timeout,
+                                check_timeout=args.check_timeout, budget_usd=args.budget)
             return run_agents(root, args.agents, attempts=args.attempts, instruction=args.instruction,
                               timeout=args.timeout, check_timeout=args.check_timeout, isolate=args.isolate,
                               budget_usd=args.budget)
