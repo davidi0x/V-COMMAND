@@ -1,0 +1,16 @@
+{
+  "name": "sample",
+  "description": "Five small tasks with a real bug and a test that catches it. A smoke suite for the harness, not a benchmark result.",
+  "tasks": [
+    {"id": "fix-add", "dir": "fix-add", "goal": "add() in calc.py returns wrong results. Fix it.",
+     "focus": ["calc.py:add"], "gates": [["python", "-B", "test_calc.py"]]},
+    {"id": "slugify", "dir": "slugify", "goal": "Implement slugify() in text.py as described in its docstring.",
+     "focus": ["text.py:slugify"], "gates": [["python", "-B", "test_text.py"]]},
+    {"id": "paginate", "dir": "paginate", "goal": "paginate() in pages.py drops or repeats items between pages. Fix it.",
+     "focus": ["pages.py:paginate"], "gates": [["python", "-B", "test_pages.py"]]},
+    {"id": "ts-cart-total", "dir": "ts-cart-total", "goal": "Cart total in cart.ts is wrong for quantities above 1. Fix it.",
+     "focus": ["cart.ts:total"], "gates": [["node", "--experimental-strip-types", "--test", "cart.test.ts"]]},
+    {"id": "ts-retry", "dir": "ts-retry", "goal": "retry() in retry.ts makes one attempt too few. Fix it.",
+     "focus": ["retry.ts:retry"], "gates": [["node", "--experimental-strip-types", "--test", "retry.test.ts"]]}
+  ]
+}

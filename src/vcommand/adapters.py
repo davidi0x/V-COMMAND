@@ -19,20 +19,25 @@ import json
 import os
 import subprocess
 import sys
+import time
 from typing import Any, TextIO
 
-from .core import CONFIG_DIR, load_config, run_task, render_evidence
+from .core import CONFIG_DIR, current_task_id, list_evidence, load_config, run_task, render_evidence
 from .state import build_frame, render_frame, record_run_failure, changed_files as _all_changed_files
 from .isolation import DEFAULT_LINKS, IsolationError, Worktree, ensure_clean_repo
 
 PROMPT_PLACEHOLDER = "{prompt}"
 
 # Non-interactive invocations. Override per project in .vcommand/config.json under "agents".
-DEFAULT_AGENTS: dict[str, list[str]] = {
+# A template is an argv list containing "{prompt}", or {"argv": [...], "cost": "<parser>"}.
+DEFAULT_AGENTS: dict[str, Any] = {
     # Codex CLI >= 0.16x: `--full-auto` was removed; workspace-write lets the agent edit the repo.
     "codex": ["codex", "exec", "--sandbox", "workspace-write", PROMPT_PLACEHOLDER],
-    "claude": ["claude", "-p", "--permission-mode", "acceptEdits", PROMPT_PLACEHOLDER],
+    # JSON output carries the provider-reported cost (total_cost_usd); the answer is still printed.
+    "claude": {"argv": ["claude", "-p", "--output-format", "json", "--permission-mode", "acceptEdits",
+                        PROMPT_PLACEHOLDER], "cost": "claude-json"},
 }
+COST_PARSERS = ("claude-json",)
 
 AGENT_INSTRUCTIONS = """You are continuing a software task managed by V/COMMAND.
 The context frame below is the source of truth: goal, completed steps, next step,
@@ -57,18 +62,97 @@ CLAUDE_HOOK_COMMANDS = hook_commands("claude")  # backwards-compatible name
 
 # ---------------------------------------------------------------- wrapper (codex / claude -p / custom)
 
-def agent_templates(cfg: dict[str, Any]) -> dict[str, list[str]]:
-    templates = dict(DEFAULT_AGENTS)
+def _spec(name: str, raw: Any) -> dict[str, Any]:
+    if isinstance(raw, list):
+        raw = {"argv": raw}
+    if not isinstance(raw, dict):
+        raise ValueError(f'Invalid agent template for "{name}"')
+    argv, cost = raw.get("argv"), raw.get("cost")
+    if not (isinstance(argv, list) and argv and all(isinstance(a, str) and a for a in argv)):
+        raise ValueError(f'Invalid agent template for "{name}"')
+    if PROMPT_PLACEHOLDER not in argv:
+        raise ValueError(f'Agent template "{name}" needs a "{PROMPT_PLACEHOLDER}" argument')
+    if cost is not None and cost not in COST_PARSERS:
+        raise ValueError(f'Agent "{name}": unknown cost parser {cost!r} (known: {", ".join(COST_PARSERS)})')
+    return {"argv": list(argv), "cost": cost}
+
+
+def agent_templates(cfg: dict[str, Any]) -> dict[str, dict[str, Any]]:
     custom = cfg.get("agents", {})
     if not isinstance(custom, dict):
-        raise ValueError('Config "agents" must map names to argv lists')
-    for name, argv in custom.items():
-        if not (isinstance(argv, list) and argv and all(isinstance(a, str) and a for a in argv)):
-            raise ValueError(f'Invalid agent template for "{name}"')
-        if PROMPT_PLACEHOLDER not in argv:
-            raise ValueError(f'Agent template "{name}" needs a "{PROMPT_PLACEHOLDER}" argument')
-        templates[name] = argv
-    return templates
+        raise ValueError('Config "agents" must map names to templates')
+    merged = {**DEFAULT_AGENTS, **custom}
+    return {name: _spec(name, raw) for name, raw in merged.items()}
+
+
+def resolve_agent(templates: dict[str, dict[str, Any]], name: str) -> dict[str, Any]:
+    if name not in templates:
+        raise ValueError(f"Unknown agent: {name}. Known: {', '.join(sorted(templates))}")
+    return templates[name]
+
+
+# ---------------------------------------------------------------- provider health (circuit breaker)
+
+DEFAULT_COOLDOWN_S = 600
+
+
+def _health_path(root: Path) -> Path:
+    return root / CONFIG_DIR / "agent_health.json"
+
+
+def load_health(root: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(_health_path(root).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_health(root: Path, data: dict[str, Any]) -> None:
+    path = _health_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def provider_failure_reason(item: dict[str, Any]) -> str | None:
+    """Heuristic: did the attempt fail because of the agent/provider rather than the task?
+
+    Launch errors, timeouts, and a non-zero exit with no file changes (auth, quota, rate limit,
+    outage) count. A run that changed files and failed the gates is a task failure, not this."""
+    action = item["action"]
+    if action.get("error_type"):
+        return f"could not launch ({action['error_type']})"
+    if action.get("timed_out"):
+        return "timed out"
+    if action.get("exit_code") not in (0, None) and not _all_changed_files(item):
+        return f"exited {action['exit_code']} without changing any file"
+    return None
+
+
+def record_health(root: Path, agent: str, reason: str | None, cooldown_s: int) -> None:
+    data = load_health(root)
+    if reason is None:
+        data.pop(agent, None)
+    else:
+        prev = data.get(agent, {})
+        data[agent] = {"consecutive_failures": int(prev.get("consecutive_failures", 0)) + 1,
+                       "open_until": time.time() + cooldown_s, "last_reason": reason}
+    _save_health(root, data)
+
+
+def open_circuits(root: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
+    now = time.time() if now is None else now
+    return {a: h for a, h in load_health(root).items() if isinstance(h, dict) and h.get("open_until", 0) > now}
+
+
+def _task_spend(root: Path) -> tuple[float, int]:
+    """Known provider-reported spend and number of unknown-cost runs for the current task."""
+    task_id = current_task_id(root)
+    if task_id is None:
+        return 0.0, 0
+    runs = [r for r in list_evidence(root) if r.get("task_id") == task_id and not r["action"].get("external")]
+    known = [r["cost"]["amount"] for r in runs if r.get("cost", {}).get("amount") is not None]
+    return float(sum(known)), len(runs) - len(known)
 
 
 def build_prompt(frame: dict[str, Any], instruction: str | None = None) -> str:
@@ -88,42 +172,67 @@ def agent_env(root: Path) -> dict[str, str]:
 
 def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, instruction: str | None = None,
                timeout: int = 3600, check_timeout: int = 600, out: TextIO | None = None,
-               isolate: bool = False) -> int:
+               isolate: bool = False, budget_usd: float | None = None) -> int:
     """Run agents in order (cycling) until the gates pass. Returns a CLI exit code.
 
     isolate=True: every attempt runs in a fresh git worktree at HEAD; only a verified attempt's
-    changes are applied to the working tree, failed attempts are discarded."""
+    changes are applied to the working tree, failed attempts are discarded.
+    Agents whose provider recently failed (circuit open) are skipped while others are available.
+    budget_usd (or config budget.max_usd_per_task): stop before an attempt once the known,
+    provider-reported spend on the current task reaches the limit."""
     out = out or sys.stdout
     cfg = load_config(root)
     templates = agent_templates(cfg)
-    unknown = [a for a in agents if a not in templates]
-    if not agents or unknown:
-        raise ValueError(f"Unknown agent(s): {', '.join(unknown) or '(none)'}. Known: {', '.join(sorted(templates))}")
+    for name in agents or [""]:
+        resolve_agent(templates, name)
     attempts = attempts or len(agents)
     if attempts < 1:
         raise ValueError("Attempts must be at least 1")
+    budget = budget_usd if budget_usd is not None else cfg.get("budget", {}).get("max_usd_per_task")
+    if budget is not None and (not isinstance(budget, (int, float)) or budget <= 0):
+        raise ValueError("Budget must be a positive number of USD")
+    cooldown = int(cfg.get("failover", {}).get("cooldown_s", DEFAULT_COOLDOWN_S))
     head = ensure_clean_repo(root) if isolate else None
     links = cfg.get("isolation", {}).get("link", list(DEFAULT_LINKS))
     if not cfg["checks"]:
         print("V/  WARNING    no checks configured: the result can only be 'unverified' and no handoff will happen",
               file=out)
+    cursor = 0
     for n in range(1, attempts + 1):
-        name = agents[(n - 1) % len(agents)]
+        if budget is not None:
+            spent, unknown = _task_spend(root)
+            if spent >= budget:
+                print(f"V/  BUDGET     stopped: ${spent:.4f} of ${budget:.4f} known spend on this task"
+                      + (f" ({unknown} attempt(s) with unknown cost not counted)" if unknown else ""), file=out)
+                return 1
+        circuits = open_circuits(root)
+        available = [a for a in agents if a not in circuits]
+        for skipped in sorted(set(agents) & set(circuits)):
+            h = circuits[skipped]
+            print(f"V/  FAILOVER   skipping {skipped}: {h['last_reason']} "
+                  f"(retry after {time.strftime('%H:%M:%S', time.localtime(h['open_until']))})", file=out)
+        if not available:
+            print("V/  FAILOVER   every agent's circuit is open; trying anyway", file=out)
+            available = agents
+        name = available[cursor % len(available)]
+        cursor += 1
+        spec = templates[name]
         frame = build_frame(root)
         prompt = build_prompt(frame, instruction)
-        argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in templates[name]]
+        argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
         shown = [f"<context frame {frame['continuity_token'][:23]}>" if a == PROMPT_PLACEHOLDER else a
-                 for a in templates[name]]
+                 for a in spec["argv"]]
         print(f"\nV/  HANDOFF    attempt {n}/{attempts} -> {name}", file=out, flush=True)
+        common = dict(timeout=timeout, check_timeout=check_timeout, agent=name, record_argv=shown, gates_judge=True,
+                      child_stdin=subprocess.DEVNULL, env=agent_env(root), cost_parser=spec["cost"])
         if isolate:
             with Worktree(root, head, links) as wt:
                 print(f"V/  ISOLATE    worktree at {head[:12]} ({wt.path})", file=out, flush=True)
                 for warning in wt.warnings:
                     print(f"V/  WARNING    {warning}", file=out)
-                item = run_task(root, argv, timeout=timeout, check_timeout=check_timeout, agent=name,
-                                record_argv=shown, gates_judge=True, child_stdin=subprocess.DEVNULL,
-                                cwd=wt.path, env=agent_env(root), isolated=True)
+                item = run_task(root, argv, cwd=wt.path, isolated=True, **common)
                 print(render_evidence(item), file=out)
+                record_health(root, name, provider_failure_reason(item), cooldown)
                 if item["status"] in {"verified_by_configured_checks", "unverified"}:
                     try:
                         changed = wt.apply_to_root()
@@ -135,14 +244,17 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
                     return 0
                 print("V/  DISCARDED  attempt changes (next attempt starts from HEAD)", file=out)
         else:
-            item = run_task(root, argv, timeout=timeout, check_timeout=check_timeout, agent=name,
-                            record_argv=shown, gates_judge=True, child_stdin=subprocess.DEVNULL,
-                            env=agent_env(root))
+            item = run_task(root, argv, **common)
             print(render_evidence(item), file=out)
+            record_health(root, name, provider_failure_reason(item), cooldown)
         if item["action"].get("error_type") == "FileNotFoundError":
-            print(f"V/  Error: `{templates[name][0]}` not found in PATH (agent '{name}')", file=out)
+            print(f"V/  Error: `{spec['argv'][0]}` not found in PATH (agent '{name}')", file=out)
         if item["status"] in {"verified_by_configured_checks", "unverified"}:
             return 0
+        reason = provider_failure_reason(item)
+        if reason:
+            print(f"V/  FAILOVER   {name}: suspected provider/agent failure ({reason}); "
+                  f"skipped for {cooldown}s while other agents are available", file=out)
         changed = _changed_files(item)
         note = f"{name} attempt {n}" + (f" changing {', '.join(changed)}" if changed else " (no file changes)")
         entry = record_run_failure(root, item, agent=name, note=note)

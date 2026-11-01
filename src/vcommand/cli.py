@@ -15,7 +15,8 @@ from .state import (start_task, load_task, complete_step, set_next_step, clear_t
                     add_ledger_entry, read_ledger, record_run_failure, build_frame, render_frame)
 from .isolation import IsolationError
 from .demo import run_demo
-from .adapters import run_agents, run_hook, install_hooks, uninstall_hooks, agent_templates, HOOK_TARGETS
+from .adapters import (run_agents, run_hook, install_hooks, uninstall_hooks, agent_templates, HOOK_TARGETS,
+                       load_health, open_circuits)
 
 
 def tokens(args: list[str]) -> list[str]:
@@ -75,6 +76,16 @@ def make_parser() -> argparse.ArgumentParser:
     agent.add_argument("--list", action="store_true", help="Show configured agent command templates")
     agent.add_argument("--isolate", action="store_true",
                        help="Run each attempt in a fresh git worktree; apply changes only when gates pass")
+    agent.add_argument("--budget", type=float, help="Stop when known provider-reported spend on this task reaches USD")
+    agent.add_argument("--health", action="store_true", help="Show agent circuit-breaker state")
+    agent.add_argument("--reset-health", action="store_true", help="Close all agent circuits")
+    bench = sub.add_parser("bench", help="Benchmark arms (agent:plain vs agent:frame) on a task suite")
+    bench.add_argument("suite", help="Suite directory containing suite.json")
+    bench.add_argument("--arm", action="append", default=[], help="<agent>:plain or <agent>:frame (repeatable)")
+    bench.add_argument("--repeats", type=int, default=1)
+    bench.add_argument("--task", action="append", help="Only these task ids (repeatable)")
+    bench.add_argument("--timeout", type=int, default=1800)
+    bench.add_argument("--out", help="Results directory (default .vcommand/bench/<run>)")
     hooks = sub.add_parser("hooks", help="Install or remove agent hooks (Claude Code, Codex CLI)")
     hooks.add_argument("action", choices=["install", "uninstall"])
     hooks.add_argument("target", choices=HOOK_TARGETS)
@@ -112,6 +123,17 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as error:  # noqa: BLE001 - hooks must fail open
                 print(f"V/  hook error: {type(error).__name__}: {error}", file=sys.stderr)
                 return 0
+        if args.command == "bench":
+            from .bench import run_bench
+            if args.repeats < 1 or args.timeout < 1:
+                raise ValueError("--repeats and --timeout must be positive")
+            summary = run_bench(Path(args.suite), args.arm, repeats=args.repeats, timeout=args.timeout,
+                                out_dir=Path(args.out) if args.out else None, project_root=root,
+                                tasks_filter=args.task)
+            from .bench import render_report
+            print("\n" + render_report(summary))
+            print(f"V/  Results: {summary['dir']}")
+            return 0
         if args.command == "hooks":
             settings = Path(args.settings) if args.settings else None
             name = {"claude": "Claude Code", "codex": "Codex"}[args.target]
@@ -165,13 +187,26 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if item["status"] in {"verified_by_configured_checks", "unverified"} else 1
         if args.command == "agent":
             if args.list:
-                for name, argv in sorted(agent_templates(cfg).items()):
-                    print(f"{name:8} {' '.join(argv)}")
+                for name, spec in sorted(agent_templates(cfg).items()):
+                    print(f"{name:12} {' '.join(spec['argv'])}" + (f"   [cost: {spec['cost']}]" if spec["cost"] else ""))
+                return 0
+            if args.reset_health:
+                (root / ".vcommand" / "agent_health.json").unlink(missing_ok=True)
+                print("V/  All agent circuits closed")
+                return 0
+            if args.health:
+                health, opened = load_health(root), open_circuits(root)
+                if not health:
+                    print("V/  No provider failures recorded")
+                for name, h in sorted(health.items()):
+                    state = "OPEN (skipped)" if name in opened else "closed (cooldown over)"
+                    print(f"{name:12} {state:24} failures in a row: {h['consecutive_failures']}  last: {h['last_reason']}")
                 return 0
             if args.timeout < 1 or args.check_timeout < 1:
                 raise ValueError("Timeout must be a positive number of seconds")
             return run_agents(root, args.agents, attempts=args.attempts, instruction=args.instruction,
-                              timeout=args.timeout, check_timeout=args.check_timeout, isolate=args.isolate)
+                              timeout=args.timeout, check_timeout=args.check_timeout, isolate=args.isolate,
+                              budget_usd=args.budget)
         if args.command == "task":
             if args.task_action == "start":
                 t = start_task(root, args.goal)

@@ -81,7 +81,7 @@ def git_status(root: Path) -> list[str] | None:
 
 
 def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None,
-            stdin: int | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
+            stdin: int | None = None, env: dict[str, str] | None = None, capture: bool = False) -> dict[str, Any]:
     """Run an explicitly supplied argv directly, without a shell or output capture.
 
     `stdout` may redirect the child's stdout to another file descriptor (e.g. 2 inside
@@ -89,25 +89,67 @@ def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None
     start = time.monotonic()
     timed_out = False
     try:
-        completed = subprocess.run(argv, cwd=root, timeout=timeout, check=False, stdout=stdout, stdin=stdin,
-                                   env=env)
+        completed = subprocess.run(argv, cwd=root, timeout=timeout, check=False,
+                                   stdout=subprocess.PIPE if capture else stdout, stdin=stdin, env=env)
         exit_code = completed.returncode
+        captured = completed.stdout if capture else None
     except subprocess.TimeoutExpired:
         timed_out = True
         exit_code = 124
+        captured = None
     except OSError as error:
         # Don't store stderr / environment / secrets; error class is sufficient.
         return {"argv": argv, "exit_code": 127, "duration_ms": int((time.monotonic()-start)*1000),
                 "timed_out": False, "error_type": type(error).__name__, "passed": False}
-    return {"argv": argv, "exit_code": exit_code, "duration_ms": int((time.monotonic()-start)*1000),
-            "timed_out": timed_out, "passed": exit_code == 0 and not timed_out}
+    result = {"argv": argv, "exit_code": exit_code, "duration_ms": int((time.monotonic()-start)*1000),
+              "timed_out": timed_out, "passed": exit_code == 0 and not timed_out}
+    if capture:
+        result["_stdout"] = captured  # transient: popped by run_task, never persisted
+    return result
+
+
+class _Sink:
+    def write(self, *_: Any) -> None: ...
+
+
+def parse_cost(parser: str | None, raw: bytes | None, echo) -> dict[str, Any]:
+    """Provider-reported cost from captured agent stdout. Echoes the agent's answer to `echo`.
+
+    Only real receipts count: when parsing fails the cost stays unknown (None), never zero."""
+    unknown = {"currency": "USD", "amount": None, "source": "unavailable"}
+    if parser is None:
+        return unknown
+    text = (raw or b"").decode("utf-8", "replace")
+    if parser == "claude-json":
+        try:
+            data = json.loads(text.strip().splitlines()[-1] if text.strip() else "")
+        except (json.JSONDecodeError, IndexError):
+            echo.write(text)
+            return unknown
+        if isinstance(data, dict):
+            if isinstance(data.get("result"), str):
+                echo.write(data["result"].rstrip() + "\n")
+            amount = data.get("total_cost_usd")
+            if isinstance(amount, (int, float)) and amount >= 0:
+                return {"currency": "USD", "amount": float(amount), "source": "claude-code total_cost_usd"}
+        return unknown
+    raise ValueError(f"Unknown cost parser: {parser}")
+
+
+def current_task_id(root: Path) -> str | None:
+    try:
+        data = json.loads((root / CONFIG_DIR / "task.json").read_text(encoding="utf-8"))
+        return data.get("id") if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: int = 120,
              demo: bool = False, agent: str | None = None, record_argv: list[str] | None = None,
              external: bool = False, log=None, child_stdout: int | None = None,
              gates_judge: bool = False, child_stdin: int | None = None, cwd: Path | None = None,
-             env: dict[str, str] | None = None, isolated: bool = False) -> dict[str, Any]:
+             env: dict[str, str] | None = None, isolated: bool = False,
+             cost_parser: str | None = None) -> dict[str, Any]:
     """Execute `argv`, then the configured checks, and persist evidence.
 
     external=True: the work was done elsewhere (e.g. an interactive agent session ending);
@@ -133,8 +175,13 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
                   "timed_out": False, "passed": True}
     else:
         print(f"\nV/  EXECUTE    {' '.join(shown)}", file=log, flush=True)
-        action = execute(argv, work, timeout, stdout=child_stdout, stdin=child_stdin, env=env)
+        action = execute(argv, work, timeout, stdout=child_stdout, stdin=child_stdin, env=env,
+                         capture=cost_parser is not None)
         action["argv"] = list(shown)
+    raw_out = action.pop("_stdout", None)
+    echo = sys.stdout if child_stdout is None else (_Sink() if child_stdout == subprocess.DEVNULL else sys.stderr)
+    cost = parse_cost(cost_parser, raw_out, echo) \
+        if cost_parser and not external else {"currency": "USD", "amount": None, "source": "unavailable"}
     checks: list[dict[str, Any]] = []
     # Checks must not leave Python bytecode behind: a cached .pyc from a check could mask a later
     # edit made within the same second with the same file size.
@@ -159,14 +206,15 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
     evidence = {
         "schema_version": 1, "id": task_id, "created_at_utc": started_at,
         "mode": cfg["mode"], "demo": demo, "agent": agent, "isolated_worktree": isolated,
+        "task_id": current_task_id(root),
         "status": status, "action": action, "checks": checks,
         "git_status_before": before, "git_status_after": after,
-        "cost": {"currency": "USD", "amount": None, "source": "unavailable"},
+        "cost": cost,
         "memory_savings_usd": None, "rejected_candidate_count": None,
         "limitations": [
             "Verification reflects configured checks, not a formal proof of correctness.",
             "Git status is a repository snapshot and cannot attribute edits to this command.",
-            "No model usage or token cost is tracked in this version.",
+            "Cost is recorded only when the agent CLI reports it (e.g. Claude Code JSON); otherwise unknown.",
             "Mode is a saved preference only; it does not enforce network isolation or route models."
         ]
     }
@@ -210,7 +258,9 @@ def render_evidence(item: dict[str, Any]) -> str:
     ]
     for idx, c in enumerate(checks, 1):
         lines.append(f"  {idx}. {'PASS' if c['passed'] else 'FAIL'}  {' '.join(c['argv'])} ({c['duration_ms']} ms)")
-    lines += ["API cost  unknown (no provider receipt)",
+    cost = item.get("cost") or {}
+    lines += [f"API cost  ${cost['amount']:.4f} ({cost.get('source')})" if cost.get("amount") is not None
+              else "API cost  unknown (no provider receipt)",
               "Savings   unknown (no benchmark baseline)",
               "Attempts  unknown (no agent trace)",
               "Evidence reflects executed checks; it is not a security attestation.", ""]
