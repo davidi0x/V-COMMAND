@@ -67,6 +67,7 @@ vcmd hooks install claude      # Claude Code: frame at session start, checks at 
 vcmd hooks install codex       # Codex CLI: same, after trusting the hooks via /hooks
 vcmd agent codex claude        # Codex first; on failed gates hand off to Claude
 vcmd agent codex claude --isolate   # each attempt in its own git worktree; only verified work lands
+vcmd agent --race claude codex      # all at once; first verified wins, the rest are killed
 ```
 
 Details: [docs/ADAPTERS.md](docs/ADAPTERS.md).
@@ -78,7 +79,7 @@ vcmd hw                          # what can this machine run locally?
 vcmd hw --add-agent local        # register codex --oss + Ollama as a free fallback
 vcmd queue add "Add rate limiting to /login" --focus src/auth.ts:login --gate "npm test"
 vcmd queue add "Document the new limit" --after q-xxxxxx
-vcmd queue run claude local --until 07:00 --budget 1.50
+vcmd queue run claude local --jobs 3 --until 07:00 --budget 1.50
 vcmd queue report                # committed / failed / waiting for your decision
 vcmd queue answer q-yyyyyy "Use 5 attempts per minute"
 ```
@@ -109,14 +110,16 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | Claude Code and Codex CLI hooks (frame injection, gate at Stop) | Implemented |
 | Non-interactive agent wrapper with handoff (Codex CLI, `claude -p`, custom) | Implemented |
 | Per-attempt git worktree isolation (`--isolate`) | Implemented |
-| OpenCode adapter | Planned |
 | Manual cross-agent handoff (context frame + ledger) | Implemented |
 | Provider failover (circuit breaker), cost from Claude Code, budget | Implemented |
-| Code slice + blast radius in the frame | Implemented (Python exact, TS/JS heuristic) |
-| Benchmark harness | Implemented; 200-task suite not built yet |
-| Hardware probe, local backup agent, overnight queue | Implemented (sequential queue) |
+| OpenCode adapter | Implemented (`opencode run`) |
+| Code slice + blast radius in the frame | Implemented (Python `ast`; TS/JS tree-sitter with `[ast]`, scanner otherwise) |
+| Benchmark harness + 200-task TypeScript suite + handoff arms | Implemented (`vcmd bench`, `benchmarks/ts200`) |
+| Race mode (parallel candidates, first verified wins) | Implemented (`vcmd agent --race`) |
+| Stream guard (kill on banned pattern mid-attempt) | Implemented (Claude Code stream-json) |
+| Hardware probe, local backup agent, overnight queue | Implemented (`--jobs N` parallel workers) |
 | Automatic model routing by task difficulty | Not implemented |
-| Cost for Codex CLI / other providers | Unknown (no USD receipt) |
+| Cost for Codex CLI | Token usage recorded; USD as a labelled estimate from configured prices |
 | True air-gapped offline enforcement | Not implemented |
 | Local semantic memory / savings measurements | Planned |
 | Auto-repair on failed verification | Planned |

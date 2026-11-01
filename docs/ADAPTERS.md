@@ -135,7 +135,48 @@ Verified live: `vcmd agent codex claude` with Codex not logged in — Codex exit
 and was recorded, the frame got a new continuity token, Claude received it, fixed the task and the
 gate passed. A provider outage, quota or login problem becomes a handoff instead of a dead end.
 
-## Not yet
+### Race: `--race`
 
-- OpenCode adapter.
-- Cost for Codex CLI (it reports tokens, not USD; cost stays `unknown`).
+```bash
+vcmd agent --race claude codex local
+```
+
+All agents start at the same time on the same frame, each in its own worktree. The first attempt whose
+gates pass is applied; the others are killed (their whole process group) and discarded. Failed attempts
+go to the ledger. Verified live: Codex failed, Haiku won after 18.8 s ($0.0060), the second Haiku was
+cancelled.
+
+### Stream guard
+
+The default `claude` template streams events (`--output-format stream-json --verbose`, parser
+`claude-stream`). Every Edit / Write / MultiEdit is checked before the agent continues:
+
+```bash
+vcmd ledger add --tried "jwt.destroy() in the controller" --why "TS2339: jsonwebtoken is stateless" \
+                --pattern "jwt.destroy("
+```
+
+```json
+{ "guard": { "banned": [{"pattern": "eval(", "reason": "security policy"}] } }
+```
+
+An edit containing a banned pattern kills the agent immediately (`V/  KILLED     stream guard: …`); the
+gates are skipped and the kill is recorded. Verified live: Claude Haiku was stopped 4.8 s into an
+attempt. The guard enforces patterns you or earlier failures defined; it does not detect unknown
+symbols — the gates (`tsc`, tests) do.
+
+### Codex cost
+
+`codex exec --json` (default template, parser `codex-jsonl`) reports token usage, not USD. V/COMMAND
+records the tokens and computes USD only if you set prices; the amount is then marked `estimated`:
+
+```json
+{ "prices": { "gpt-5-codex": {"input_per_mtok": 1.25, "cached_input_per_mtok": 0.125, "output_per_mtok": 10.0} } }
+```
+
+The model key is the `-m` / `--model` value in the agent template.
+
+### OpenCode
+
+`opencode run {prompt}` (checked against opencode 1.19.5). OpenCode asks before some actions;
+`--auto` approves everything not explicitly denied — add it to your template only deliberately.

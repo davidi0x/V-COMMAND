@@ -44,16 +44,23 @@ One live smoke run (5 small tasks, Claude Haiku, 10 runs, $0.0525 — [results](
 both arms passed 5/5; the frame arm cost about 39% more and was ~4 s slower per task. On small tasks
 the frame is overhead. Whether it pays off on harder tasks and after a failed attempt is still open.
 
-## Still open
+### Completed after the first review
 
-| Concept | Why not yet |
+| Concept | Implementation |
 |---|---|
-| ~200-task TypeScript suite with handoff arms | Needs real bug-fix tasks with tests; the harness is ready, the task set is not |
-| Cost for Codex CLI | `codex exec` reports tokens, not USD; a price table would be an estimate, so cost stays unknown |
-| Parallel speculative candidates / parallel queue workers | Sequential first; parallelism only if a benchmark shows a wall-clock *and* cost win |
-| Streaming guard (kill generation on unknown method) | Needs streaming access and real symbol tables; regex matching is too brittle |
-| Tree-sitter / LSP precision for the slice | Optional backend later; would add native dependencies |
-| Rust daemon | Only if profiling shows Python is the bottleneck; today the cost is model latency |
+| 200-task TypeScript suite + handoff arms | `benchmarks/ts200` (generated: 20 bug families × 10 domains, each verified both ways in CI); `vcmd bench --handoff A>B` |
+| Speculative parallel candidates | `vcmd agent --race a b c`: same frame, separate worktrees, first verified wins, the rest are killed |
+| Parallel queue workers | `vcmd queue run --jobs N`: focus-file locks, per-task state, serialized apply+commit, conflict ⇒ re-queue once |
+| Streaming guard | `claude-stream` parser: every Edit/Write is checked against banned patterns (ledger `--pattern`, `guard.banned`); the agent is killed mid-attempt. It enforces known-bad patterns; detecting *unknown* symbols mid-stream is left to the gates (`tsc`, tests) |
+| Codex cost | `codex-jsonl` parser sums token usage; USD only as an estimate from `prices` in config, flagged `estimated` |
+| Tree-sitter precision | Optional backend (`pip install "vcommand-cli[ast]"`); scanner remains the zero-dependency default |
+| OpenCode | `opencode run {prompt}` template (checked against opencode 1.19.5) |
+
+### Deliberately not built
+
+| Concept | Reason |
+|---|---|
+| Rust daemon | Measured: `vcmd frame` with a code slice takes ~0.11 s and `vcmd run` overhead ~0.1 s, against a median agent attempt of 16.5 s (ts200 run) — under 1%. A rewrite cannot make attempts noticeably faster |
 
 ## Not adopted
 
@@ -69,11 +76,12 @@ From the proposal, stated as hypotheses only:
 
 - "~900-token frame replaces 40k tokens of chat with no loss" — measure task success with frame vs. full history.
 - "~3× faster wall-clock, 60–75% cheaper with two cheap models in parallel" — paired runs on the same task set.
-- "Early kill saves 70% of tokens on hallucinations" — requires streaming adapter and measurement.
+- "Early kill saves 70% of tokens on hallucinations" — the guard now kills on banned patterns (live: 4.8 s into
+  an attempt); a token-saving percentage still needs a measured comparison.
 - "Local 30B MoE at ~38 tok/s on a 16 GB machine via NVMe" — hardware-specific; publish measured numbers only.
 - Repository-specific failure rates (e.g. "68% of models forget cache invalidation") — only from actual ledger counts.
 
 Benchmark plan: ~200 TypeScript tasks with deterministic tests; arms = reference model solo, cheap
 model solo, cheap model + context frame (+ ledger after a failed attempt); report pass rate,
-wall-clock, provider-reported cost, confidence intervals and failures. `vcmd bench` implements the
-measurement; the task set is the remaining work.
+wall-clock, provider-reported cost, confidence intervals and failures — implemented by `vcmd bench` on
+`benchmarks/ts200`; results in `benchmarks/results/`.
