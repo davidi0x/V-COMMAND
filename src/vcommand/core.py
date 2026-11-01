@@ -60,6 +60,13 @@ def save_config(root: Path, cfg: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def project_root() -> Path:
+    """Where V/COMMAND state lives. Agents launched by V/COMMAND get VCOMMAND_ROOT so that
+    `vcmd` calls from inside an isolated worktree still update the main project's state."""
+    env = os.environ.get("VCOMMAND_ROOT")
+    return Path(env) if env else Path.cwd()
+
+
 def git_status(root: Path) -> list[str] | None:
     if not shutil.which("git"):
         return None
@@ -74,7 +81,7 @@ def git_status(root: Path) -> list[str] | None:
 
 
 def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None,
-            stdin: int | None = None) -> dict[str, Any]:
+            stdin: int | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
     """Run an explicitly supplied argv directly, without a shell or output capture.
 
     `stdout` may redirect the child's stdout to another file descriptor (e.g. 2 inside
@@ -82,7 +89,8 @@ def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None
     start = time.monotonic()
     timed_out = False
     try:
-        completed = subprocess.run(argv, cwd=root, timeout=timeout, check=False, stdout=stdout, stdin=stdin)
+        completed = subprocess.run(argv, cwd=root, timeout=timeout, check=False, stdout=stdout, stdin=stdin,
+                                   env=env)
         exit_code = completed.returncode
     except subprocess.TimeoutExpired:
         timed_out = True
@@ -98,7 +106,8 @@ def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None
 def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: int = 120,
              demo: bool = False, agent: str | None = None, record_argv: list[str] | None = None,
              external: bool = False, log=None, child_stdout: int | None = None,
-             gates_judge: bool = False, child_stdin: int | None = None) -> dict[str, Any]:
+             gates_judge: bool = False, child_stdin: int | None = None, cwd: Path | None = None,
+             env: dict[str, str] | None = None, isolated: bool = False) -> dict[str, Any]:
     """Execute `argv`, then the configured checks, and persist evidence.
 
     external=True: the work was done elsewhere (e.g. an interactive agent session ending);
@@ -106,12 +115,14 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
     record_argv: what to store instead of `argv` (e.g. to keep a long prompt out of evidence).
     gates_judge=True: run the checks even when the command exits non-zero or times out (an agent's
     exit code is a self-report); status then follows the checks. Launch errors still skip checks.
+    cwd: where the command and checks run (e.g. an isolated worktree); state stays in `root`.
     """
+    work = cwd or root
     if not argv:
         raise ValueError("Missing command")
     log = log or sys.stdout
     cfg = load_config(root)
-    before = git_status(root)
+    before = git_status(work)
     # Microseconds keep IDs (and therefore `sorted(runs/*.json)`) in execution order within one second.
     task_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex[:8]
     started_at = utc_now()
@@ -122,14 +133,14 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
                   "timed_out": False, "passed": True}
     else:
         print(f"\nV/  EXECUTE    {' '.join(shown)}", file=log, flush=True)
-        action = execute(argv, root, timeout, stdout=child_stdout, stdin=child_stdin)
+        action = execute(argv, work, timeout, stdout=child_stdout, stdin=child_stdin, env=env)
         action["argv"] = list(shown)
     checks: list[dict[str, Any]] = []
     run_checks = action["passed"] or (gates_judge and "error_type" not in action)
     if run_checks:
         for check_argv in cfg["checks"]:
             print(f"V/  VERIFY     {' '.join(check_argv)}", file=log, flush=True)
-            checks.append(execute(check_argv, root, check_timeout, stdout=child_stdout))
+            checks.append(execute(check_argv, work, check_timeout, stdout=child_stdout))
     else:
         print("V/  CHECKS     skipped: execution failed", file=log, flush=True)
     # No checks -> unverified, even when action exit code is 0.
@@ -141,10 +152,10 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
         status = "verified_by_configured_checks"
     else:
         status = "failed_verification"
-    after = git_status(root)
+    after = git_status(work)
     evidence = {
         "schema_version": 1, "id": task_id, "created_at_utc": started_at,
-        "mode": cfg["mode"], "demo": demo, "agent": agent,
+        "mode": cfg["mode"], "demo": demo, "agent": agent, "isolated_worktree": isolated,
         "status": status, "action": action, "checks": checks,
         "git_status_before": before, "git_status_after": after,
         "cost": {"currency": "USD", "amount": None, "source": "unavailable"},

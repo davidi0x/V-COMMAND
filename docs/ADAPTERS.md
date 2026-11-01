@@ -63,8 +63,32 @@ Each attempt:
 4. on failure records a ledger entry (agent, attempt, changed files, failing gate) and continues with
    the next agent.
 
-The changes of a failed attempt stay in the working tree; the next agent continues from them and sees
-them in the frame. Commit or stash first if you want a clean baseline.
+Without isolation, the changes of a failed attempt stay in the working tree; the next agent continues
+from them and sees them in the frame.
+
+### Isolation: `--isolate`
+
+```bash
+vcmd agent codex claude --isolate
+```
+
+- Every attempt runs in a fresh `git worktree` at `HEAD`, outside the repository; the gates run there.
+- A verified attempt's changes are applied to your working tree as a patch (`V/  APPLIED`).
+- A failed attempt is discarded (`V/  DISCARDED`); its changed files and failing gate go to the ledger,
+  so the next agent starts clean but knows what failed.
+- Requires a clean working tree (commit or stash first). `.vcommand/`, `.claude/`, `.codex/` don't count.
+- Untracked dependency directories are shared by symlink instead of reinstalling; default
+  `node_modules`, configurable:
+
+  ```json
+  { "isolation": { "link": ["node_modules", ".venv"] } }
+  ```
+- Agents get `VCOMMAND_ROOT`, so `vcmd task done …` inside the worktree updates the main project, and
+  `VCOMMAND_WRAPPED=1`, so installed hooks don't inject the frame a second time. A Stop hook inside a
+  wrapped session still runs the gates in the agent's worktree.
+
+Verified live: `vcmd agent codex claude --isolate` — Codex attempt discarded, Claude's attempt verified
+in its worktree and applied (`fixed.txt`), no worktrees left behind.
 
 Evidence stores `<context frame sha256:…>` instead of the prompt.
 
@@ -94,4 +118,3 @@ gate passed. A provider outage, quota or login problem becomes a handoff instead
 
 - OpenCode adapter.
 - Cost per attempt from provider receipts (cost remains `unknown`).
-- Worktree isolation per attempt.

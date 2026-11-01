@@ -26,9 +26,8 @@ Success = 10 independent developers run it in their real repositories and unders
 6. [x] `adapter: Codex CLI` — `vcmd agent codex` wrapper (checked against codex-cli 0.166) and `vcmd hooks install codex`.
 7. `adapter: OpenCode session + event metadata`.
 8. [x] `adapter: Claude Code official hooks and lifecycle` — SessionStart frame injection, Stop gate.
-8a. `feat: per-attempt worktree isolation`.
+8a. [x] `feat: per-attempt worktree isolation` — `vcmd agent --isolate`.
 9. `feat: AST/dependency slice (tree-sitter) and blast radius in the context frame` — TypeScript first.
-9a. `feat: git worktree sandbox pool for isolated runs and checks`.
 9b. `benchmark: context frame vs. full chat history on ~200 TypeScript tasks` (see docs/EXECUTION_KERNEL.md).
 10. `feat: detect command intent / ask user approval before actions`.
 

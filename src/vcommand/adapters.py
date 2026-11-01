@@ -16,12 +16,14 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 import subprocess
 import sys
 from typing import Any, TextIO
 
 from .core import CONFIG_DIR, load_config, run_task, render_evidence
 from .state import build_frame, render_frame, record_run_failure
+from .isolation import DEFAULT_LINKS, IsolationError, Worktree, ensure_clean_repo
 
 PROMPT_PLACEHOLDER = "{prompt}"
 
@@ -81,9 +83,18 @@ def _changed_files(evidence: dict[str, Any], limit: int = 5) -> list[str]:
     return files[:limit] + ([f"+{len(files) - limit} more"] if len(files) > limit else [])
 
 
+def agent_env(root: Path) -> dict[str, str]:
+    """Environment for launched agents: `vcmd` inside them (CLI or hooks) targets the main project."""
+    return {**os.environ, "VCOMMAND_ROOT": str(root.resolve()), "VCOMMAND_WRAPPED": "1"}
+
+
 def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, instruction: str | None = None,
-               timeout: int = 3600, check_timeout: int = 600, out: TextIO | None = None) -> int:
-    """Run agents in order (cycling) until the gates pass. Returns a CLI exit code."""
+               timeout: int = 3600, check_timeout: int = 600, out: TextIO | None = None,
+               isolate: bool = False) -> int:
+    """Run agents in order (cycling) until the gates pass. Returns a CLI exit code.
+
+    isolate=True: every attempt runs in a fresh git worktree at HEAD; only a verified attempt's
+    changes are applied to the working tree, failed attempts are discarded."""
     out = out or sys.stdout
     cfg = load_config(root)
     templates = agent_templates(cfg)
@@ -93,6 +104,8 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
     attempts = attempts or len(agents)
     if attempts < 1:
         raise ValueError("Attempts must be at least 1")
+    head = ensure_clean_repo(root) if isolate else None
+    links = cfg.get("isolation", {}).get("link", list(DEFAULT_LINKS))
     if not cfg["checks"]:
         print("V/  WARNING    no checks configured: the result can only be 'unverified' and no handoff will happen",
               file=out)
@@ -104,9 +117,30 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
         shown = [f"<context frame {frame['continuity_token'][:23]}>" if a == PROMPT_PLACEHOLDER else a
                  for a in templates[name]]
         print(f"\nV/  HANDOFF    attempt {n}/{attempts} -> {name}", file=out, flush=True)
-        item = run_task(root, argv, timeout=timeout, check_timeout=check_timeout, agent=name, record_argv=shown,
-                        gates_judge=True, child_stdin=subprocess.DEVNULL)
-        print(render_evidence(item), file=out)
+        if isolate:
+            with Worktree(root, head, links) as wt:
+                print(f"V/  ISOLATE    worktree at {head[:12]} ({wt.path})", file=out, flush=True)
+                for warning in wt.warnings:
+                    print(f"V/  WARNING    {warning}", file=out)
+                item = run_task(root, argv, timeout=timeout, check_timeout=check_timeout, agent=name,
+                                record_argv=shown, gates_judge=True, child_stdin=subprocess.DEVNULL,
+                                cwd=wt.path, env=agent_env(root), isolated=True)
+                print(render_evidence(item), file=out)
+                if item["status"] in {"verified_by_configured_checks", "unverified"}:
+                    try:
+                        changed = wt.apply_to_root()
+                    except IsolationError as error:
+                        print(f"V/  Error: {error}. Verified changes were not applied.", file=out)
+                        return 1
+                    print(f"V/  APPLIED    {len(changed)} file(s) to the working tree: {', '.join(changed[:8])}"
+                          + (" …" if len(changed) > 8 else ""), file=out)
+                    return 0
+                print("V/  DISCARDED  attempt changes (next attempt starts from HEAD)", file=out)
+        else:
+            item = run_task(root, argv, timeout=timeout, check_timeout=check_timeout, agent=name,
+                            record_argv=shown, gates_judge=True, child_stdin=subprocess.DEVNULL,
+                            env=agent_env(root))
+            print(render_evidence(item), file=out)
         if item["action"].get("error_type") == "FileNotFoundError":
             print(f"V/  Error: `{templates[name][0]}` not found in PATH (agent '{name}')", file=out)
         if item["status"] in {"verified_by_configured_checks", "unverified"}:
@@ -143,14 +177,20 @@ def _bump_blocks(root: Path, target: str, session_id: str, reset: bool = False) 
     return count
 
 
-def _hook_root(payload: dict[str, Any]) -> Path:
+def _hook_dirs(payload: dict[str, Any]) -> tuple[Path, Path]:
+    """(state root, work dir). Inside `vcmd agent --isolate` the agent works in a worktree while
+    V/COMMAND state stays in the main project (VCOMMAND_ROOT)."""
     cwd = payload.get("cwd")
-    return Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd()
+    work = Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd()
+    env = os.environ.get("VCOMMAND_ROOT")
+    return (Path(env) if env else work), work
 
 
 def hook_session_start(payload: dict[str, Any], out: TextIO) -> int:
     """SessionStart: plain stdout is added to the agent's context (Claude Code and Codex)."""
-    root = _hook_root(payload)
+    if os.environ.get("VCOMMAND_WRAPPED"):
+        return 0  # `vcmd agent` already put the frame in the prompt
+    root, _ = _hook_dirs(payload)
     try:
         frame = build_frame(root)
     except FileNotFoundError:
@@ -165,7 +205,7 @@ def hook_stop(payload: dict[str, Any], out: TextIO, err: TextIO, target: str = "
     """Stop: run gates; on failure block the stop (bounded) and record the failure.
 
     Reply protocol shared by Claude Code and Codex: JSON on stdout, {"decision": "block", "reason": ...}."""
-    root = _hook_root(payload)
+    root, work = _hook_dirs(payload)
     try:
         cfg = load_config(root)
     except FileNotFoundError:
@@ -178,7 +218,7 @@ def hook_stop(payload: dict[str, Any], out: TextIO, err: TextIO, target: str = "
     label = AGENT_LABELS.get(target, target)
     # Child processes and progress lines go to stderr: stdout is reserved for the hook's JSON reply.
     item = run_task(root, [f"{label}:session:{session[:8]}"], external=True, agent=label,
-                    log=err, child_stdout=2)
+                    log=err, child_stdout=2, cwd=work)
     if item["status"] == "verified_by_configured_checks":
         _bump_blocks(root, target, session, reset=True)
         return 0

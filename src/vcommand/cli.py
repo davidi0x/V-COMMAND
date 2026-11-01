@@ -9,10 +9,11 @@ import sys
 import tempfile
 
 from . import __version__
-from .core import (MODES, init_project, load_config, save_config, run_task,
+from .core import (project_root, MODES, init_project, load_config, save_config, run_task,
                    read_evidence, render_evidence, list_evidence)
 from .state import (start_task, load_task, complete_step, set_next_step, clear_task,
                     add_ledger_entry, read_ledger, record_run_failure, build_frame, render_frame)
+from .isolation import IsolationError
 from .adapters import run_agents, run_hook, install_hooks, uninstall_hooks, agent_templates, HOOK_TARGETS
 
 
@@ -68,6 +69,8 @@ def make_parser() -> argparse.ArgumentParser:
     agent.add_argument("--timeout", type=int, default=3600, help="Per-attempt agent timeout in seconds")
     agent.add_argument("--check-timeout", type=int, default=600, help="Each check timeout in seconds")
     agent.add_argument("--list", action="store_true", help="Show configured agent command templates")
+    agent.add_argument("--isolate", action="store_true",
+                       help="Run each attempt in a fresh git worktree; apply changes only when gates pass")
     hooks = sub.add_parser("hooks", help="Install or remove agent hooks (Claude Code, Codex CLI)")
     hooks.add_argument("action", choices=["install", "uninstall"])
     hooks.add_argument("target", choices=HOOK_TARGETS)
@@ -97,7 +100,7 @@ def demo() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = make_parser().parse_args(argv)
-    root = Path.cwd()
+    root = project_root()
     try:
         if args.command == "init":
             created = init_project(root)
@@ -178,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.timeout < 1 or args.check_timeout < 1:
                 raise ValueError("Timeout must be a positive number of seconds")
             return run_agents(root, args.agents, attempts=args.attempts, instruction=args.instruction,
-                              timeout=args.timeout, check_timeout=args.check_timeout)
+                              timeout=args.timeout, check_timeout=args.check_timeout, isolate=args.isolate)
         if args.command == "task":
             if args.task_action == "start":
                 t = start_task(root, args.goal)
@@ -235,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
             print("V/  No provider integration in alpha; unknown is not zero.")
             return 0
         return 2
-    except (ValueError, FileNotFoundError, json.JSONDecodeError, PermissionError) as error:
+    except (ValueError, FileNotFoundError, json.JSONDecodeError, PermissionError, IsolationError) as error:
         print(f"V/  Error: {error}", file=sys.stderr)
         return 2
 

@@ -72,6 +72,7 @@ vcmd frame --out handoff.md     # give this to model B, from any provider
 vcmd hooks install claude      # Claude Code: frame at session start, checks at Stop
 vcmd hooks install codex       # Codex CLI: same, after trusting the hooks via /hooks
 vcmd agent codex claude        # Codex first; on failed gates hand off to Claude
+vcmd agent codex claude --isolate   # each attempt in its own git worktree; only verified work lands
 ```
 
 Details: [docs/ADAPTERS.md](docs/ADAPTERS.md).
@@ -101,6 +102,7 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | Git status before/after (not causal attribution) | Implemented |
 | Claude Code and Codex CLI hooks (frame injection, gate at Stop) | Implemented |
 | Non-interactive agent wrapper with handoff (Codex CLI, `claude -p`, custom) | Implemented |
+| Per-attempt git worktree isolation (`--isolate`) | Implemented |
 | OpenCode adapter | Planned |
 | Manual cross-agent handoff (context frame + ledger) | Implemented |
 | AST/dependency slice in the frame | Planned |
