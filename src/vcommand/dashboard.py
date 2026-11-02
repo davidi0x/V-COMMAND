@@ -29,6 +29,8 @@ from typing import Any
 from .core import CONFIG_DIR, list_evidence, load_config
 
 PAGE = Path(__file__).with_name("dashboard.html")
+ASSETS = Path(__file__).with_name("assets")
+ASSET_TYPES = {".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8", ".svg": "image/svg+xml"}
 STATE_FILE = "dashboard.json"
 MAX_BODY = 64 * 1024
 
@@ -86,6 +88,8 @@ def collect_state(root: Path) -> dict[str, Any]:
             a["cost"] = round(a["cost"] + amount, 6)
     health, opened = load_health(root), open_circuits(root)
     templates = agent_templates(cfg)
+    import shutil as _shutil
+    code_slice = frame.get("code_slice") or {}
     try:
         stored = list_secrets()
         secret_error = None
@@ -106,22 +110,37 @@ def collect_state(root: Path) -> dict[str, Any]:
         },
         "statuses": statuses,
         "task": load_task(root),
+        "project_name": root.resolve().name,
         "frame": {"token": frame["continuity_token"], "gates": frame["acceptance_gates"],
                   "hints": frame.get("preflight_hints") or [], "focus": frame.get("focus") or [],
-                  "slice_parser": (frame.get("code_slice") or {}).get("parser")},
-        "runs": [{"id": r["id"], "agent": r.get("agent"), "status": r["status"],
+                  "slice_parser": code_slice.get("parser"),
+                  "constraints": [e["constraint"] for e in frame["negative_knowledge"]],
+                  "symbols": [{"file": s["file"], "symbol": s.get("symbol"), "lines": s.get("lines"),
+                               "outline": len(s.get("outline", [])) if s.get("symbol") is None else None}
+                              for s in code_slice.get("symbols", [])],
+                  "references": [{"file": r["file"], "line": r["line"], "kind": r["kind"]}
+                                 for r in code_slice.get("references", [])],
+                  "problems": code_slice.get("problems", []),
+                  "last_run": frame.get("last_run")},
+        "runs": [{"id": r["id"], "agent": r.get("agent"), "status": r["status"], "created_at": r.get("created_at_utc"),
+                  "exit_code": r["action"].get("exit_code"), "external": bool(r["action"].get("external")),
+                  "changed": [l[3:] for l in (r.get("git_status_after") or [])
+                              if len(l) > 3 and not l[3:].startswith((CONFIG_DIR, ".claude/", ".codex/"))][:30],
+                  "task_id": r.get("task_id"),
                   "duration_ms": r["action"].get("duration_ms"), "cost": (r.get("cost") or {}).get("amount"),
                   "cost_source": (r.get("cost") or {}).get("source"), "estimated": (r.get("cost") or {}).get("estimated"),
                   "killed": r["action"].get("killed"), "isolated": r.get("isolated_worktree"),
                   "cancelled": bool(r["action"].get("cancelled")),
-                  "checks": [{"cmd": " ".join(c["argv"])[-90:], "passed": c["passed"]} for c in r["checks"]]}
+                  "checks": [{"cmd": " ".join(c["argv"])[-90:], "passed": c["passed"],
+                              "duration_ms": c.get("duration_ms"), "timed_out": c.get("timed_out")} for c in r["checks"]]}
                  for r in reversed(runs[-200:])],
         "agents": [{"name": name, "argv": " ".join(spec["argv"]), "parser": spec["cost"],
+                    "installed": bool(_shutil.which(spec["argv"][0])),
                     "circuit": "open" if name in opened else ("recovering" if name in health else "closed"),
                     "last_reason": (health.get(name) or {}).get("last_reason"),
                     **per_agent.get(name, {"runs": 0, "verified": 0, "cost": 0.0, "unknown_cost": 0, "killed": 0})}
                    for name, spec in sorted(templates.items())]
-                  + [{"name": n, "argv": "", "parser": None, "circuit": "—", "last_reason": None, **v}
+                  + [{"name": n, "argv": "", "parser": None, "installed": None, "circuit": "—", "last_reason": None, **v}
                      for n, v in per_agent.items() if n not in templates],
         "ledger": list(reversed(ledger[-100:])),
         "queue": load_queue(root)["tasks"],
@@ -160,7 +179,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
                          "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; "
-                         "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'")
+                         "connect-src 'self'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(body)
 
@@ -180,6 +199,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urllib.parse.urlparse(self.path).path
+        if path.startswith("/assets/"):
+            # static, non-sensitive files (font, licence): loopback Host still required, no token
+            name = path.rsplit("/", 1)[-1]
+            target = ASSETS / name
+            if not self._host_ok() or "/" in name or not target.is_file() or target.suffix not in ASSET_TYPES:
+                self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+                return
+            self._send(HTTPStatus.OK, target.read_bytes(), ASSET_TYPES[target.suffix])
+            return
         if self._guard() is None:
             return
         try:

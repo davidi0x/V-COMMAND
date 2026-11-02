@@ -270,6 +270,7 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
         "status": status, "action": action, "checks": checks,
         "git_status_before": before, "git_status_after": after,
         "cost": cost,
+        "agent_result": getattr(parser, "result_subtype", None) if not external and parser is not None else None,
         "memory_savings_usd": None, "rejected_candidate_count": None,
         "limitations": [
             "Verification reflects configured checks, not a formal proof of correctness.",

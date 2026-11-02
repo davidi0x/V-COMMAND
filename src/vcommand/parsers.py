@@ -22,6 +22,9 @@ UNKNOWN = {"currency": "USD", "amount": None, "source": "unavailable"}
 
 
 class _Base:
+    # how the agent itself ended the run, when it says so ("success", "error_max_turns", ...)
+    result_subtype: str | None = None
+
     def __init__(self, echo, context: dict[str, Any] | None = None):
         self.echo = echo
         self.context = context or {}
@@ -57,6 +60,7 @@ class ClaudeJson(_Base):
             return dict(UNKNOWN)
         if isinstance(data.get("result"), str):
             self._say(data["result"])
+        self.result_subtype = data.get("subtype") if isinstance(data.get("subtype"), str) else None
         return _claude_cost(data)
 
 
@@ -84,6 +88,7 @@ class ClaudeStream(_Base):
             return None
         if event.get("type") == "result":
             self.cost = _claude_cost(event)
+            self.result_subtype = event.get("subtype") if isinstance(event.get("subtype"), str) else None
             return None
         if event.get("type") != "assistant":
             return None

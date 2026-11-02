@@ -111,6 +111,20 @@ class DashboardServerTests(SecretEnv):
         self.assertEqual(self.req("GET", "/", token=False)[0], 401)
         self.assertEqual(self.req("GET", f"/?token={self.token}", token=False)[0], 200)
 
+    def test_static_font_served_safely(self):
+        status, body = self.req("GET", "/assets/archivo-latin.woff2", token=False)
+        self.assertEqual(status, 200)
+        self.assertEqual(body[:4], b"wOF2")
+        self.assertEqual(self.req("GET", "/assets/..%2Fdashboard.py", token=False)[0], 404)
+        self.assertEqual(self.req("GET", "/assets/nope.woff2", token=False)[0], 404)
+        self.assertEqual(self.req("GET", "/assets/archivo-latin.woff2", token=False,
+                                  headers={"Host": f"attacker.test:{self.port}"})[0], 404)
+
+    def test_page_has_characters_and_reduced_motion(self):
+        page = self.req("GET", f"/?token={self.token}", token=False)[1].decode()
+        for needle in ("prefers-reduced-motion", "startViewTransition", "function character(", "What should we build next?"):
+            self.assertIn(needle, page)
+
     def test_state_and_secret_never_returned(self):
         status, _ = self.req("POST", "/api/secret", {"name": "VCMD_TEST_KEY", "value": "sk-live-SUPERSECRET-9999"})
         self.assertEqual(status, 200)

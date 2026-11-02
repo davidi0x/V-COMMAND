@@ -81,11 +81,19 @@ vcmd dashboard --install-command # /dashboard inside Claude Code (also added by 
 vcmd secret set OPENAI_API_KEY   # or add keys on the dashboard's "API keys" tab
 ```
 
-![V/COMMAND dashboard: KPI tiles, current task, run outcomes, latest runs](docs/dashboard.png)
+![V/COMMAND dashboard: current task, verified rate, questions waiting, known spend](docs/dashboard.png)
 
-One local page with overview KPIs, runs and provider-reported costs, verified rate per agent, ledger
-and pre-flight warnings, agent health, the queue (answer frozen tasks, add tasks), benchmark results
-with confidence intervals, hardware and the current context frame. Light and dark, works on a phone.
+| Queue | Runs (dark) |
+|---|---|
+| ![Queue board: ready, running, needs you, new task](docs/dashboard-queue.png) | ![Run detail: verdict, checks, cost receipt, timeline](docs/dashboard-runs-dark.png) |
+
+Nine views — Studio, Agents, Queue, Runs, Memory, Context, Benchmarks, Hardware, Settings — all built
+from real project data. Type a goal in the bottom bar to queue it. Each agent has an animated character
+(builder, checker, challenger, advisor) that blinks, breathes, follows your cursor and reacts to state:
+working agents move faster, a question waiting for you makes one fidget, a paused provider looks down.
+Motion uses transform/opacity only, view transitions between tabs, and respects reduced motion.
+Light and dark, works on a phone; the Archivo font (OFL) ships with the package, so nothing is loaded
+from the internet.
 
 - **Keys are secrets.** Stored in macOS Keychain, Windows DPAPI (encrypted for your user), Linux Secret
   Service, or — if none is available — `~/.config/vcommand/secrets.json` with permissions 0600 (shown as

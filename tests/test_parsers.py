@@ -57,6 +57,12 @@ class ParserTests(unittest.TestCase):
         self.assertIsNone(cost["amount"])
         self.assertEqual(cost["usage"]["input_tokens"], 5)
 
+    def test_claude_stream_records_how_the_agent_ended(self):
+        p = make_parser("claude-stream", io.StringIO())
+        p.feed(json.dumps({"type": "result", "subtype": "error_max_turns", "total_cost_usd": 0.001}))
+        self.assertEqual(p.result_subtype, "error_max_turns")
+        self.assertEqual(p.finish()["amount"], 0.001)
+
     def test_unknown_parser_rejected(self):
         with self.assertRaises(ValueError):
             make_parser("guess", io.StringIO())

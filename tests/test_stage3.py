@@ -91,6 +91,9 @@ class Stage3Tests(unittest.TestCase):
         self.assertIsNone(provider_failure_reason(item))
         self.assertIsNotNone(provider_failure_reason({"action": {"error_type": "FileNotFoundError"}}))
         self.assertIsNotNone(provider_failure_reason({"action": {"exit_code": 124, "timed_out": True}}))
+        # the agent itself said it ran out of turns: an agent failure, not an outage
+        self.assertIsNone(provider_failure_reason({"action": {"exit_code": 1}, "agent_result": "error_max_turns"}))
+        self.assertIsNotNone(provider_failure_reason({"action": {"exit_code": 1}, "agent_result": "error_during_execution"}))
 
     def test_templates_accept_list_and_spec_and_reject_unknown_parser(self):
         t = agent_templates({"agents": {"x": ["a", "{prompt}"]}})

@@ -120,6 +120,9 @@ def _save_health(root: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+AGENT_OUTCOMES = {"success", "error_max_turns"}
+
+
 def provider_failure_reason(item: dict[str, Any]) -> str | None:
     """Heuristic: did the attempt fail because of the agent/provider rather than the task?
 
@@ -130,6 +133,10 @@ def provider_failure_reason(item: dict[str, Any]) -> str | None:
         return f"could not launch ({action['error_type']})"
     if action.get("timed_out"):
         return "timed out"
+    # The agent reported how it ended: running out of turns or finishing is the agent's outcome,
+    # not an outage (found live: --max-turns runs exit 1 without edits and were misread as outages).
+    if item.get("agent_result") in AGENT_OUTCOMES:
+        return None
     if action.get("exit_code") not in (0, None) and not _all_changed_files(item):
         return f"exited {action['exit_code']} without changing any file"
     return None
