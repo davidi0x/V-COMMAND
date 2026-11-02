@@ -20,6 +20,7 @@ import secrets as pysecrets
 import shlex
 import signal
 import socket
+import socketserver
 import subprocess
 import sys
 import time
@@ -268,10 +269,21 @@ class _Handler(BaseHTTPRequestHandler):
         raise ValueError("unknown action")
 
 
+class _LoopbackServer(ThreadingHTTPServer):
+    """HTTPServer.server_bind() calls socket.getfqdn(), a reverse DNS lookup that can block for tens of
+    seconds on macOS when DNS is slow or unreachable (found on CI). A loopback server never needs it."""
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
+
 def make_server(root: Path, port: int = 0, token: str | None = None) -> tuple[ThreadingHTTPServer, str]:
     load_config(root)  # must be an initialized project
     token = token or pysecrets.token_urlsafe(24)
-    server = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
+    server = _LoopbackServer(("127.0.0.1", port), _Handler)
     actual = server.server_address[1]
     handler = type("Handler", (_Handler,), {"root": root, "token": token, "port": actual})
     server.RequestHandlerClass = handler

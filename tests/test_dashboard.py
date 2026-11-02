@@ -184,3 +184,15 @@ class CommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoReverseDnsTests(unittest.TestCase):
+    def test_server_start_never_does_reverse_dns(self):
+        import socket
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            init_project(root)
+            with mock.patch.object(socket, "getfqdn", side_effect=AssertionError("reverse DNS lookup")):
+                server, _ = make_server(root, 0)
+            server.server_close()
