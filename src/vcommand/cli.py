@@ -115,6 +115,42 @@ def make_parser() -> argparse.ArgumentParser:
     sched.add_argument("--at", default="02:00", help="HH:MM (GitHub: UTC)")
     sched.add_argument("--loop", action="store_true")
     sched.add_argument("--write", action="store_true", help="github: write .github/workflows/vcommand-wake.yml")
+    mi = sub.add_parser("mission", help="Say the goal once: plan, cost range, who-does-what sliders, approve, run")
+    mi_sub = mi.add_subparsers(dest="mi_action")
+    mi_new = mi_sub.add_parser("new", help="Draft a mission from one sentence (the enhancer writes brief, questions, steps)")
+    mi_new.add_argument("goal")
+    mi_new.add_argument("--agents", nargs="+", help="Agents that may work on it (default: from vcmd roles)")
+    mi_new.add_argument("--enhance", metavar="AGENT", help="Agent that drafts the brief (default: roles.plan)")
+    mi_new.add_argument("--no-enhance", action="store_true", help="Skip the enhancer: the goal becomes one step")
+    mi_new.add_argument("--timeout", type=int, default=600)
+    mi_sub.add_parser("show", help="The plan, estimates and sliders (default)")
+    mi_ag = mi_sub.add_parser("agents", help="Choose the agents")
+    mi_ag.add_argument("names", nargs="+")
+    mi_sh = mi_sub.add_parser("share", help="Sliders: share of the work per agent, e.g. claude=60 codex=40")
+    mi_sh.add_argument("pairs", nargs="+", metavar="agent=PERCENT")
+    mi_pin = mi_sub.add_parser("pin", help="Force a step onto an agent (or --clear)")
+    mi_pin.add_argument("step", type=int)
+    mi_pin.add_argument("agent", nargs="?")
+    mi_bu = mi_sub.add_parser("budget", help="Hard stop in USD (all agents, or one with --agent)")
+    mi_bu.add_argument("usd", type=float)
+    mi_bu.add_argument("--agent")
+    mi_bu.add_argument("--clear", action="store_true")
+    mi_an = mi_sub.add_parser("answer", help="Answer an enhancer question")
+    mi_an.add_argument("n", type=int)
+    mi_an.add_argument("text")
+    mi_ed = mi_sub.add_parser("edit", help="Edit a step")
+    mi_ed.add_argument("step", type=int)
+    mi_ed.add_argument("--title")
+    mi_ed.add_argument("--difficulty", choices=["easy", "medium", "hard"])
+    mi_ed.add_argument("--detail")
+    mi_ap = mi_sub.add_parser("approve", help="Approve the plan; nothing runs before this")
+    mi_ap.add_argument("--skip-questions", action="store_true")
+    mi_run = mi_sub.add_parser("run", help="Run the approved mission step by step")
+    mi_run.add_argument("--attempts", type=int, default=2)
+    mi_run.add_argument("--timeout", type=int, default=3600)
+    mi_run.add_argument("--review", action="store_true", help="Ask roles.review for a verdict at the end")
+    mi_sub.add_parser("report", help="Estimate vs actual")
+    mi_sub.add_parser("discard", help="Drop the current mission")
     wt = sub.add_parser("worktree", help="One git worktree per live session (parallel work without collisions)")
     wt_sub = wt.add_subparsers(dest="wt_action", required=True)
     wt_new = wt_sub.add_parser("new", help="Create ../<repo>-<name> on branch vcmd/<name> with its own state and hooks")
@@ -352,6 +388,56 @@ def _workflow_command(args, root: Path, cfg: dict) -> int:
                           timeout=args.timeout, check_timeout=args.check_timeout, budget_usd=args.budget)
     return w.run_wake(root, args.agents, use_loop=args.loop, max_tasks=args.max_tasks, until=args.until,
                       budget_usd=args.budget, timeout=args.timeout, jobs=args.jobs)
+
+
+def _mission_command(args, root: Path, cfg: dict) -> int:
+    from . import mission as mi
+    act = args.mi_action or "show"
+    if act == "new":
+        roles = cfg.get("roles") or {}
+        enhancer = None if args.no_enhance else (args.enhance or (roles.get("plan") if isinstance(roles.get("plan"), str) else None))
+        if not enhancer and not args.no_enhance:
+            print("V/  No enhancer agent (--enhance <agent> or vcmd roles set plan <agent>): the goal becomes one step.")
+        m = mi.new_mission(root, args.goal, agents=args.agents, enhancer=enhancer, timeout=args.timeout)
+        print("\n" + mi.render_view(mi.view(root, m)))
+        return 0
+    if act == "agents":
+        mi.set_agents(root, args.names)
+    elif act == "share":
+        shares = {}
+        for pair in args.pairs:
+            name, sep, val = pair.partition("=")
+            if not sep or not val.strip().isdigit():
+                raise ValueError("Use agent=PERCENT, e.g. claude=60 codex=40")
+            shares[name] = int(val)
+        mi.set_shares(root, shares)
+    elif act == "pin":
+        mi.pin_step(root, args.step, args.agent)
+    elif act == "budget":
+        mi.set_budget(root, None if args.clear else args.usd, args.agent)
+    elif act == "answer":
+        mi.answer_question(root, args.n, args.text)
+    elif act == "edit":
+        mi.edit_step(root, args.step, title=args.title, difficulty=args.difficulty, detail=args.detail)
+    elif act == "approve":
+        m = mi.approve(root, skip_questions=args.skip_questions)
+        print(f"V/  Mission {m['id']} approved ({len(m['steps'])} step(s)). Start: vcmd mission run")
+        return 0
+    elif act == "run":
+        if args.attempts < 1 or args.timeout < 1:
+            raise ValueError("--attempts and --timeout must be positive")
+        return mi.run_mission(root, attempts=args.attempts, timeout=args.timeout, review=args.review)
+    elif act == "report":
+        m = mi.load_mission(root)
+        if m is None:
+            raise FileNotFoundError('No mission. Start one: vcmd mission new "<goal>"')
+        print(mi.render_report(root, m), end="")
+        return 0
+    elif act == "discard":
+        print("V/  Mission discarded" if mi.discard(root) else "V/  No mission")
+        return 0
+    print(mi.render_view(mi.view(root)))
+    return 0
 
 
 def _hidden(prompt: str) -> str:
@@ -829,6 +915,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "connect":
             return _connect_command(args, root, cfg)
+        if args.command == "mission":
+            return _mission_command(args, root, cfg)
         if args.command in {"worktree", "sessions", "msg", "channel", "remote", "autopilot", "roles"}:
             return _parallel_command(args, root, cfg)
         if args.command in {"decide", "decisions", "todo", "handoff", "approve", "guard", "loop", "wake"}:

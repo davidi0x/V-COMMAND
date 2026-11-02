@@ -576,7 +576,7 @@ def _diff_text(repo: Path, limit: int = 40_000) -> str:
 
 
 def _text_role(root: Path, agent: str, instruction: str, *, out: TextIO, timeout: int, label: str,
-               fallback_file: str | None = None) -> tuple[str | None, dict[str, Any]]:
+               fallback_file: str | None = None, quiet: bool = False) -> tuple[str | None, dict[str, Any]]:
     """Run one agent for a text answer (planner / reviewer). Gates are not run for text roles."""
     from .adapters import (agent_templates, resolve_agent, build_prompt, agent_env, parser_context,
                            PROMPT_PLACEHOLDER)
@@ -593,7 +593,8 @@ def _text_role(root: Path, agent: str, instruction: str, *, out: TextIO, timeout
     print(f"\nV/  ROLE       {label} -> {agent}", file=out, flush=True)
     item = run_task(root, argv, timeout=timeout, agent=f"{agent}:{label}", record_argv=shown,
                     child_stdin=subprocess.DEVNULL, env=agent_env(root, None, spec), cost_parser=spec["cost"],
-                    parser_context=parser_context(root, cfg, spec["argv"]), log=out, run_checks=False)
+                    parser_context=parser_context(root, cfg, spec["argv"]), log=out, run_checks=False,
+                    child_stdout=subprocess.DEVNULL if quiet else None)
     text = item.get("agent_text")
     if fallback_file:
         f = root / fallback_file

@@ -150,7 +150,22 @@ def collect_state(root: Path) -> dict[str, Any]:
                     "known": [{"name": k, "label": v} for k, v in KNOWN.items()]},
         "budget": cfg.get("budget", {}),
         "workflow": _workflow_state(root, cfg, frame),
+        "mission": _mission_state(root),
     }
+
+
+def _mission_state(root: Path) -> dict[str, Any] | None:
+    from . import mission as mi
+    m = mi.load_mission(root)
+    if m is None:
+        return None
+    try:
+        v = mi.view(root, m)
+    except (ValueError, KeyError, FileNotFoundError) as error:
+        return {"error": str(error), "status": m.get("status"), "goal": m.get("goal")}
+    v["review"] = m.get("review")
+    v["stop_reason"] = m.get("stop_reason")
+    return v
 
 
 def _workflow_state(root: Path, cfg: dict[str, Any], frame: dict[str, Any]) -> dict[str, Any]:
@@ -292,6 +307,8 @@ class _Handler(BaseHTTPRequestHandler):
             from .workflow import decide_approval
             a = decide_approval(self.root, str(body.get("id", "")), bool(body.get("approve")))
             return {"ok": True, "id": a["id"], "status": a["status"]}
+        if path.startswith("/api/mission/"):
+            return self._mission_action(path.rsplit("/", 1)[-1], body)
         if path == "/api/msg":
             from .sessions import send_message, shared_root
             m = send_message(shared_root(self.root), str(body.get("to", "")), str(body.get("text", "")),
@@ -307,6 +324,59 @@ class _Handler(BaseHTTPRequestHandler):
             (self.root / CONFIG_DIR / "agent_health.json").unlink(missing_ok=True)
             return {"ok": True}
         raise ValueError("unknown action")
+
+
+    def _mission_action(self, action: str, body: dict[str, Any]) -> dict[str, Any]:
+        from . import mission as mi
+        import io as _io
+        import os as _os
+        root = self.root
+        if action == "new":
+            agents = [str(a) for a in body.get("agents") or []]
+            enhancer = str(body["enhancer"]) if body.get("enhancer") else None
+            mi.new_mission(root, str(body.get("goal", "")), agents=agents or None, enhancer=enhancer, out=_io.StringIO())
+        elif action == "update":
+            if "agents" in body:
+                mi.set_agents(root, [str(a) for a in body["agents"]])
+            if "shares" in body:
+                mi.set_shares(root, {str(k): int(v) for k, v in dict(body["shares"]).items()})
+            if "pin" in body:
+                p = dict(body["pin"])
+                mi.pin_step(root, int(p["n"]), str(p["agent"]) if p.get("agent") else None)
+            if "budget" in body:
+                mi.set_budget(root, None if body["budget"] in (None, "") else float(body["budget"]))
+            if "cap" in body:
+                c = dict(body["cap"])
+                mi.set_budget(root, None if c.get("usd") in (None, "") else float(c["usd"]), str(c["agent"]))
+            if "answer" in body:
+                a = dict(body["answer"])
+                mi.answer_question(root, int(a["n"]), str(a["text"]))
+            if "edit" in body:
+                e = dict(body["edit"])
+                mi.edit_step(root, int(e["n"]), title=e.get("title"), difficulty=e.get("difficulty"), detail=e.get("detail"))
+        elif action == "approve":
+            mi.approve(root, skip_questions=bool(body.get("skip_questions")))
+        elif action == "discard":
+            mi.discard(root)
+            return {"ok": True, "view": None}
+        elif action == "run":
+            m = mi.load_mission(root)
+            if m is None:
+                raise ValueError("No mission")
+            pid_file = root / CONFIG_DIR / "mission.pid"
+            try:
+                _os.kill(int(pid_file.read_text().strip()), 0)
+                if m["status"] == "running":
+                    raise ValueError("The mission is already running")
+            except (OSError, ValueError) as error:
+                if "already running" in str(error):
+                    raise
+            if m["status"] not in {"approved", "stopped", "running"}:
+                raise ValueError(f"Mission is {m['status']}: approve it first")
+            pid_file.write_text(str(mi.run_detached(root, [])), encoding="utf-8")
+        else:
+            raise ValueError("unknown mission action")
+        return {"ok": True, "view": _mission_state(root)}
 
 
 class _LoopbackServer(ThreadingHTTPServer):

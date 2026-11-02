@@ -93,7 +93,15 @@ class ClaudeJson(_Base):
 def _claude_cost(data: dict[str, Any]) -> dict[str, Any]:
     amount = data.get("total_cost_usd")
     if isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount >= 0:
-        return {"currency": "USD", "amount": float(amount), "source": "claude-code total_cost_usd"}
+        out = {"currency": "USD", "amount": float(amount), "source": "claude-code total_cost_usd"}
+        u = data.get("usage")
+        if isinstance(u, dict):  # provider-reported tokens, kept for the Mission estimator
+            usage = {k: u[k] for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens",
+                                       "cache_read_input_tokens")
+                     if isinstance(u.get(k), int) and not isinstance(u.get(k), bool) and u[k] >= 0}
+            if usage:
+                out["usage"] = usage
+        return out
     return dict(UNKNOWN)
 
 

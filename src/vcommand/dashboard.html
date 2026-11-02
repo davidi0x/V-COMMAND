@@ -119,6 +119,14 @@ h1.hero .line > span { display: inline-block; }
   .btn:hover { background: #26252f; } .btn.ghost:hover { background: rgba(0,0,0,.12); } .btn.light:hover { background: #f1f1f5; }
   nav.tabs button:hover, .seg button:hover { color: var(--ink); }
 }
+input[type=range] { width: 100%; accent-color: #000; height: 28px; cursor: pointer; }
+.sliderrow { display: grid; grid-template-columns: minmax(90px, 140px) 1fr 56px; gap: 14px; align-items: center; padding: 10px 0; }
+.sliderrow b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sliderrow output { font-variant-numeric: tabular-nums; font-weight: 700; text-align: right; }
+.diff { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.1); }
+.diff.hard { background: #000; color: #fff; } .diff.easy { background: rgba(0,0,0,.06); }
+.est { font-variant-numeric: tabular-nums; }
+select.mini { height: 38px; border-radius: 12px; border: 1px solid var(--line); padding: 0 10px; background: #fff; color: #000; max-width: 170px; }
 input.field, select.field { width: 100%; height: 52px; padding: 0 18px; border-radius: 16px; border: 1px solid var(--line); background: #fff; color: #000; }
 .card:not(.violet):not(.yellow):not(.coral):not(.lime) input.field,
 .card:not(.violet):not(.yellow):not(.coral):not(.lime) select.field { background: var(--card-2); color: var(--ink); }
@@ -315,16 +323,16 @@ const TOKEN = new URLSearchParams(location.search).get("token") || "";
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)");
 const FINE = matchMedia("(hover: hover) and (pointer: fine)");
 const GROUPS = [
-  ["Studio", ["studio", "agents", "queue"]],
+  ["Studio", ["studio", "mission", "agents", "queue"]],
   ["Activity", ["runs", "bench", "hardware"]],
   ["Library", ["memory", "context", "settings"]],
 ];
 const TABS = {
-  studio: ["Studio", "i-studio"], agents: ["Agents", "i-agents"], queue: ["Queue", "i-queue"], runs: ["Runs", "i-runs"],
+  mission: ["Mission", "i-bench"], studio: ["Studio", "i-studio"], agents: ["Agents", "i-agents"], queue: ["Queue", "i-queue"], runs: ["Runs", "i-runs"],
   memory: ["Memory", "i-memory"], context: ["Context", "i-context"], bench: ["Benchmarks", "i-bench"],
   hardware: ["Hardware", "i-hw"], settings: ["Settings", "i-settings"],
 };
-const ORDER = ["studio", "agents", "queue", "runs", "memory", "context", "bench", "hardware", "settings"];
+const ORDER = ["studio", "mission", "agents", "queue", "runs", "memory", "context", "bench", "hardware", "settings"];
 let STATE = null, LAST = "", TAB = "studio", RUN = null, SETTINGS = "connections", HW = null, FRAME = null;
 
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -758,7 +766,81 @@ function vSettings(s) {
     ${pane}</div>`;
 }
 
-const VIEWS = { studio: vStudio, agents: vAgents, queue: vQueue, runs: vRuns, memory: vMemory, context: vContext, bench: vBench, hardware: vHardware, settings: vSettings };
+
+/* ---------- mission ---------- */
+const rng = (b, f) => !b ? "no data" : (b[0] === b[2] ? f(b[1]) : `${f(b[0])}–${f(b[2])}`);
+const fUsd = (v) => "$" + (v < 0.1 ? v.toFixed(3) : v.toFixed(2));
+const fTok = (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? Math.round(v / 1e3) + "k" : String(Math.round(v));
+const fSec = (v) => v >= 3600 ? (v / 3600).toFixed(1) + " h" : v >= 90 ? Math.round(v / 60) + " min" : Math.round(v) + " s";
+
+function missionBody(s) {
+  const m = s.mission, installed = s.agents.filter((a) => a.argv);
+  if (!m) {
+    const roles = s.workflow.roles || {};
+    return `<section class="card violet c8 rise" style="--i:0"><div class="kicker">New mission</div>
+      <h2 class="big">What should get done?</h2>
+      <p style="margin:10px 0 18px">One sentence. The enhancer (read-only) turns it into a brief, asks what it must not guess, and plans the steps. Nothing runs before you approve.</p>
+      <form id="mission-new" class="stack" style="gap:14px">
+        <input class="field" name="goal" maxlength="500" required placeholder="Add password reset to the login flow">
+        <div class="row" style="gap:14px;flex-wrap:wrap">
+          <label class="small" style="min-width:200px">Enhancer<br><select class="field" name="enhancer"><option value="">none (goal = one step)</option>${installed.map((a) => `<option ${roles.plan === a.name ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></label>
+          <div class="small" style="flex:1;min-width:240px">Agents on this mission<br><span class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">${installed.map((a) => `<label class="chip" style="cursor:pointer"><input type="checkbox" name="agents" value="${esc(a.name)}" ${(["claude-sonnet", "codex", "claude"].includes(a.name) && a.installed) ? "checked" : ""}> ${esc(a.name)}${a.installed === false ? " (not installed)" : ""}</label>`).join("")}</span></div></div>
+        <div class="row"><button class="btn" id="mission-create">Plan it ${icon("i-arrow")}</button><span class="small muted" id="mission-wait"></span></div>
+      </form></section>
+      <section class="card lime c4 rise" style="--i:1"><h2>How it works</h2>
+        <div class="list" style="margin-top:10px"><div class="item">1 · One sentence</div><div class="item">2 · Brief, questions, steps</div><div class="item">3 · Sliders: who does how much</div><div class="item">4 · Cost range from <b>your</b> history</div><div class="item">5 · Approve → gates after every step</div></div></section>`;
+  }
+  if (m.error) return `<section class="card coral c12"><h2>Mission needs attention</h2><p>${esc(m.error)}</p><button class="btn small" data-mission="discard">Discard</button></section>`;
+  const t = m.total, draft = m.status === "draft" || m.status === "approved", agents = m.all_agents;
+  const statusBadge = { draft: ["Draft", ""], approved: ["Approved", "good"], running: ["Running", "good"], done: ["Done", "good"], stopped: ["Stopped", "bad"], failed: ["Failed", "bad"] }[m.status] || [m.status, ""];
+  const open = m.questions.filter((q) => !q.answer).length;
+  return `<section class="card violet c7 rise" style="--i:0"><div class="between" style="align-items:flex-start"><div style="min-width:0"><div class="kicker">Mission ${esc(m.id)}</div>
+      <h2 class="big">${esc(m.goal)}</h2></div><span class="badge ${statusBadge[1]}">${statusBadge[0]}</span></div>
+      ${m.enhancer_note ? `<div class="inset small" style="margin-top:14px">${esc(m.enhancer_note)}</div>` : ""}
+      <div class="inset" style="margin-top:18px"><div class="between"><b>Brief</b><span class="small muted">${m.enhancer ? "drafted by " + esc(m.enhancer) : "not enhanced"}</span></div>
+        <p style="margin-top:8px"><b>Scope</b> · ${esc(m.brief.scope || "not set")}</p>
+        ${(m.brief.constraints || []).map((c) => `<p class="small" style="margin-top:4px">• ${esc(c)}</p>`).join("")}
+        <p style="margin-top:8px"><b>Done when</b> · ${esc(m.brief.done || "all acceptance gates pass")}</p></div>
+      ${m.questions.map((q, i) => `<form class="mission-answer inset" data-n="${i + 1}" style="margin-top:12px"><b>${esc(q.q)}</b>
+        ${draft ? `<div class="row" style="gap:8px;margin-top:8px"><input class="field" name="text" value="${esc(q.answer || "")}" placeholder="Your decision" required><button class="btn small">${q.answer ? "Update" : "Answer"}</button></div>` : `<p class="small" style="margin-top:6px">${esc(q.answer || "(unanswered)")}</p>`}</form>`).join("")}
+      ${m.assumptions.length ? `<div class="small muted" style="margin-top:12px">Assumptions if you skip the questions: ${m.assumptions.map(esc).join(" · ")}</div>` : ""}</section>
+    <section class="card yellow c5 rise" style="--i:1"><div class="kicker">Estimate before you approve</div>
+      <div class="giant num est" style="font-size:clamp(34px,5vw,60px)">${t.usd ? rng(t.usd, fUsd) : "no data"}</div>
+      <p style="margin-top:6px">${t.tokens ? `tokens ${rng(t.tokens, fTok)}` : "tokens: no data"} · ${t.seconds ? `time ${rng(t.seconds, fSec)}` : "time: no data"}</p>
+      <p class="small" style="margin-top:8px">A range from <b>your</b> past runs, not a promise. ${t.usd_missing ? `${t.usd_missing} of ${t.steps} step(s) have no data yet; the first run builds it.` : "Based on measured runs."}</p>
+      <div class="row" style="margin-top:14px;gap:10px;align-items:center"><label class="small">Budget (hard stop)</label>
+        <input class="field" id="mission-budget" type="number" min="0.01" step="0.01" style="max-width:130px" value="${m.budget_usd ?? ""}" placeholder="USD" ${draft ? "" : "disabled"}></div>
+      ${m.warnings.map((w) => `<div class="inset small" style="margin-top:10px">[!] ${esc(w)}</div>`).join("")}
+      <div class="row" style="margin-top:18px;gap:10px;flex-wrap:wrap">
+        ${m.status === "draft" ? `<button class="btn" data-mission="approve">${open ? "Approve with assumptions" : "Approve"} ${icon("i-arrow")}</button>` : ""}
+        ${["approved", "stopped"].includes(m.status) ? `<button class="btn" data-mission="run">${m.status === "stopped" ? "Continue" : "Run"} ${icon("i-arrow")}</button>` : ""}
+        ${m.status === "running" ? `<span class="badge good">Running — gates run after every step</span>` : ""}
+        ${m.status !== "running" ? `<button class="btn ghost small" data-mission="discard">Discard</button>` : ""}</div>
+      ${m.stop_reason ? `<p class="small" style="margin-top:12px">Stopped: ${esc(m.stop_reason)}</p>` : ""}</section>
+    <section class="card c7 rise" style="--i:2"><div class="between"><h2>Plan</h2><span class="small muted">${m.steps.length} step(s)</span></div>
+      <div class="list" style="margin-top:8px">${m.steps.map((st) => { const e = st.estimate, a = st.actual; return `<div class="item"><div class="between" style="align-items:flex-start;gap:12px">
+        <div style="min-width:0"><div class="row" style="gap:8px"><span class="diff ${esc(st.difficulty)}">${esc(st.difficulty)}</span><b>${st.n}. ${esc(st.title)}</b></div>
+          ${st.detail ? `<p class="small" style="margin-top:4px">${esc(st.detail)}</p>` : ""}
+          <p class="small muted est" style="margin-top:4px">${e ? `est ${rng(e.usd, fUsd)}${e.usd ? "" : ""} · ${esc(e.basis)}` : ""}${a ? ` · actual ${a.usd == null ? "unknown" : fUsd(a.usd)}, ${a.seconds}s` : ""}</p></div>
+        <div class="stack" style="align-items:flex-end;gap:6px">${m.status === "draft" || m.status === "approved" ? `<select class="mini" data-pin="${st.n}"><option value="">auto → ${esc(st.agent || "-")}</option>${agents.map((n) => `<option value="${esc(n)}" ${st.pinned && st.agent === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>` : `<span class="badge">${esc(st.agent || "-")}</span>`}
+          <span class="badge ${st.status === "done" ? "good" : ["failed", "needs_you"].includes(st.status) ? "bad" : ""}">${esc(st.status)}</span></div></div></div>`; }).join("")}</div></section>
+    <section class="card lime c5 rise" style="--i:3"><div class="between"><h2>Who does how much</h2><span class="small muted">weights</span></div>
+      <p class="small" style="margin-top:6px">Sliders are relative weights; the real split of work is shown under each. Easy = 1 unit, medium = 2, hard = 3. Drag; the plan and the estimate follow when you let go.</p>
+      <div id="sliders" style="margin-top:8px">${agents.map((n) => { const a = m.agents[n], w = m.shares[n] ?? 0; return `<div class="sliderrow"><b title="${esc(n)}">${esc(n)}</b>
+        <input type="range" min="0" max="100" step="5" value="${w}" data-share="${esc(n)}" ${draft ? "" : "disabled"} aria-label="Share for ${esc(n)}"><output>${w}%</output></div>
+        <div class="small muted est" style="margin:-6px 0 6px 0">${a ? `${a.steps} step(s) · ${a.work_share}% of the work · ${a.usd_known ? rng(a.usd, fUsd) : "no cost data"}` : "no steps"}</div>`; }).join("")}</div>
+      ${draft ? `<p class="small muted" style="margin-top:8px">More agents: <span class="mono">vcmd mission agents a b c</span></p>` : ""}</section>
+    ${m.status === "done" || m.status === "stopped" || m.status === "failed" ? `<section class="card c12 rise" style="--i:4"><h2>Result</h2><p>${m.steps.filter((x) => x.status === "done").length}/${m.steps.length} step(s) verified by the gates${m.review ? ` · review: ${esc(m.review.verdict || "no verdict")}` : ""}. Report: <span class="mono">.vcommand/mission_report.md</span>; handoff: <span class="mono">.vcommand/handoff.md</span>.</p></section>` : ""}`;
+}
+function vMission(s) { return hero("Say it once.", "Approve the plan.") + `<div class="bento" id="mission-root">${missionBody(s)}</div>`; }
+async function missionCall(action, body) {
+  const r = await api("/api/mission/" + action, body || {});
+  STATE.mission = r.view; LAST = "";
+  const root = $("#mission-root");
+  if (root) root.innerHTML = missionBody(STATE); else paint();
+  return r;
+}
+const VIEWS = { mission: vMission, studio: vStudio, agents: vAgents, queue: vQueue, runs: vRuns, memory: vMemory, context: vContext, bench: vBench, hardware: vHardware, settings: vSettings };
 
 /* ---------- navigation + rendering ---------- */
 function buildNav() {
@@ -841,11 +923,21 @@ function countUp() {
 }
 
 /* ---------- events ---------- */
+document.addEventListener("input", (e) => {
+  if (e.target.dataset.share !== undefined) e.target.nextElementSibling.textContent = e.target.value + "%";
+});
 document.addEventListener("click", async (e) => {
   const el = e.target.closest("button");
   if (!el) return;
   try {
-    if (el.dataset.tab) show(el.dataset.tab);
+    if (el.dataset.mission) {
+      const a = el.dataset.mission;
+      if (a === "discard" && !confirm("Discard this mission?")) return;
+      const q = (STATE.mission?.questions || []).some((x) => !x.answer);
+      await missionCall(a, a === "approve" ? { skip_questions: q } : {});
+      toast(a === "approve" ? "Approved. Nothing has run yet." : a === "run" ? "Mission started" : "Discarded");
+    }
+    else if (el.dataset.tab) show(el.dataset.tab);
     else if (el.dataset.group) show(GROUPS.find(([g]) => g === el.dataset.group)[1][0]);
     else if (el.dataset.go) show(el.dataset.go);
     else if (el.dataset.run) { RUN = el.dataset.run; if (document.startViewTransition && !REDUCED.matches) document.startViewTransition(paint); else paint(); }
@@ -862,14 +954,30 @@ document.addEventListener("click", async (e) => {
     else if (el.id === "theme") { const dark = (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark"; setTheme(dark ? "light" : "dark"); }
   } catch (err) { toast(err.message); }
 });
-document.addEventListener("change", (e) => {
-  if (e.target.id === "k-name") $("#custom-wrap").style.display = e.target.value === "__custom" ? "block" : "none";
+document.addEventListener("change", async (e) => {
+  const t = e.target;
+  try {
+    if (t.dataset.share !== undefined) {
+      const shares = {}; $$("[data-share]").forEach((r) => { shares[r.dataset.share] = Number(r.value); });
+      if (!Object.values(shares).some((v) => v > 0)) { toast("Give at least one agent a share above 0"); await missionCall("update", {}); return; }
+      await missionCall("update", { shares });
+    } else if (t.dataset.pin !== undefined) await missionCall("update", { pin: { n: Number(t.dataset.pin), agent: t.value } });
+    else if (t.id === "mission-budget") await missionCall("update", { budget: t.value === "" ? null : Number(t.value) });
+  } catch (err) { toast(err.message); try { await missionCall("update", {}); } catch (_) {} }
+  if (t.id === "k-name") $("#custom-wrap").style.display = e.target.value === "__custom" ? "block" : "none";
 });
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target, data = Object.fromEntries(new FormData(f));
   try {
-    if (f.id === "command") {
+    if (f.id === "mission-new") {
+      const agents = new FormData(f).getAll("agents");
+      $("#mission-create").disabled = true; $("#mission-wait").textContent = data.enhancer ? "Planning… this can take a minute" : "";
+      try { await missionCall("new", { goal: data.goal, enhancer: data.enhancer || null, agents }); toast("Plan ready. Nothing runs until you approve."); }
+      finally { const b = $("#mission-create"); if (b) b.disabled = false; }
+    } else if (f.classList.contains("mission-answer")) {
+      await missionCall("update", { answer: { n: Number(f.dataset.n), text: data.text } }); toast("Saved");
+    } else if (f.id === "command") {
       if (!data.goal.trim()) return;
       const r = await api("/api/queue/add", { goal: data.goal.trim(), focus: [], gates: [] });
       f.reset(); toast(`Queued ${r.id}. Run it with vcmd queue run`); await load();
@@ -911,6 +1019,7 @@ if (!VIEWS[TAB]) TAB = "studio";
 load(true).then(() => document.fonts?.ready.then(syncNav));
 setTimeout(() => document.body.classList.remove("enter"), 1600);
 setInterval(() => { if (!document.hidden && !document.activeElement?.matches("input, textarea, select")) load(); }, 15000);
+setInterval(() => { if (!document.hidden && STATE?.mission?.status === "running" && !document.activeElement?.matches("input, textarea, select")) load(); }, 3000);
 </script>
 </body>
 </html>
