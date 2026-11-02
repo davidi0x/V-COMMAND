@@ -147,7 +147,7 @@ class ClaudeHookTests(unittest.TestCase):
                     "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}}
         settings.write_text(json.dumps(existing))
         _, added = install_claude_hooks(self.root)
-        self.assertEqual(sorted(added), ["SessionStart", "Stop"])
+        self.assertEqual(sorted(added), ["PreCompact", "PreToolUse", "SessionStart", "Stop"])
         _, added_again = install_claude_hooks(self.root)
         self.assertEqual(added_again, [])
         data = json.loads(settings.read_text())
@@ -155,7 +155,7 @@ class ClaudeHookTests(unittest.TestCase):
         commands = [h["command"] for g in data["hooks"]["Stop"] for h in g["hooks"]]
         self.assertEqual(commands, ["other", CLAUDE_HOOK_COMMANDS["Stop"]])
         _, removed = uninstall_claude_hooks(self.root)
-        self.assertEqual(sorted(removed), ["SessionStart", "Stop"])
+        self.assertEqual(sorted(removed), ["PreCompact", "PreToolUse", "SessionStart", "Stop"])
         self.assertEqual(json.loads(settings.read_text()), existing)
 
     def test_codex_hooks_file_and_stop_protocol(self):
@@ -171,7 +171,7 @@ class ClaudeHookTests(unittest.TestCase):
         self.assertEqual(json.loads(out.getvalue())["decision"], "block")
         self.assertEqual(read_ledger(self.root)[-1]["agent"], "codex")
         _, removed = uninstall_hooks(self.root, "codex")
-        self.assertEqual(sorted(removed), ["SessionStart", "Stop"])
+        self.assertEqual(sorted(removed), ["PreCompact", "PreToolUse", "SessionStart", "Stop"])
 
     def test_codex_template_uses_supported_flags(self):
         # `--full-auto` was removed from `codex exec` (verified against codex-cli 0.166).

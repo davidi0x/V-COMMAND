@@ -431,6 +431,8 @@ const runStatus = (r) => r.cancelled ? STATUS.cancelled : (STATUS[r.status] || [
 function vStudio(s) {
   const k = s.kpi, t = s.task, kinds = agentKinds();
   const waiting = s.queue.filter((q) => q.status === "frozen");
+  const approvals = s.workflow.approvals.filter((a) => a.status === "pending");
+  const needs = waiting.length + approvals.length;
   const rate = k.runs ? k.verified / k.runs : null;
   return hero("Done isn't", "verified.") + `<div class="bento">
     <section class="card violet c7 rise" style="--i:0">
@@ -453,10 +455,13 @@ function vStudio(s) {
     </section>
     <section class="card coral c4 rise" style="--i:2">
       <div class="between" style="align-items:flex-start"><div><div class="kicker">Needs you</div>
-        <h2 class="big">${waiting.length ? `${waiting.length} question${waiting.length > 1 ? "s" : ""} waiting` : "Nothing waiting"}</h2></div>
-        ${character("challenger", { size: 110, delay: 1.1, state: waiting.length ? "alert" : "" })}</div>
-      ${waiting.slice(0, 2).map((q) => `<div class="inset" style="margin-top:14px"><b>${esc(q.question)}</b><div class="small muted">${esc(q.goal)}</div></div>`).join("")}
-      ${waiting.length ? `<button class="btn small" style="margin-top:16px" data-go="queue">Answer in Queue ${icon("i-arrow")}</button>` : `<p style="margin-top:12px">Agents ask here instead of guessing.</p>`}
+        <h2 class="big">${needs ? `${needs} decision${needs > 1 ? "s" : ""} waiting` : "Nothing waiting"}</h2></div>
+        ${character("challenger", { size: 110, delay: 1.1, state: needs ? "alert" : "" })}</div>
+      ${approvals.slice(0, 2).map((a) => `<div class="inset" style="margin-top:14px"><div class="between"><b>Approve ${esc(a.rule)}?</b><span class="small muted">${esc(a.agent || "")}</span></div>
+        <div class="mono small" style="margin-top:6px;word-break:break-all">${esc(a.command)}</div>
+        <div class="row" style="margin-top:10px;gap:8px"><button class="btn small" data-approve="${esc(a.id)}">Approve once</button><button class="btn ghost small" data-deny="${esc(a.id)}">Deny</button></div></div>`).join("")}
+      ${waiting.slice(0, approvals.length ? 1 : 2).map((q) => `<div class="inset" style="margin-top:14px"><b>${esc(q.question)}</b><div class="small muted">${esc(q.goal)}</div></div>`).join("")}
+      ${waiting.length ? `<button class="btn small" style="margin-top:16px" data-go="queue">Answer in Queue ${icon("i-arrow")}</button>` : approvals.length ? "" : `<p style="margin-top:12px">Agents ask here instead of guessing: questions, deploys, database writes, bulk deletes.</p>`}
     </section>
     <section class="card lime c4 rise" style="--i:3">
       <div class="kicker">Known spend</div><div class="giant num">${usd(k.known_cost_usd)}</div>
@@ -595,11 +600,23 @@ function vMemory(s) {
       <div class="between" style="align-items:flex-start"><div style="min-width:0"><b>${esc(e.tried)}</b><p class="small" style="margin-top:4px">${esc(e.failure)}</p>
         <div style="margin-top:8px">${(e.files || []).map((f) => `<span class="chip mono">${esc(f)}</span>`).join("")}${e.pattern ? `<span class="chip mono" style="background:var(--coral);color:#000">guard: ${esc(e.pattern)}</span>` : ""}</div></div>
         <span class="small muted" style="white-space:nowrap">${esc(e.agent || "")} · ${ago(e.created_at_utc)}</span></div></div>`).join("") || `<div class="empty">Nothing has failed yet.</div>`}</div></section>
+    ${leaveBehind(s.workflow, 3)}
   </div>`;
 }
 
+function leaveBehind(wf, i) {
+  const open = wf.todos.filter((t) => !t.done);
+  return `<section class="card lime c7 rise" style="--i:${i}"><div class="between"><div><div class="kicker">Leave-behind</div><h2>handoff.md</h2></div><span class="small muted">rewritten after every run</span></div>
+      <div class="code" style="margin-top:12px;white-space:pre-wrap">${esc(wf.handoff || "No handoff yet. It is written after the first run: vcmd run / vcmd agent / hooks.")}</div></section>
+    <section class="card c5 rise" style="--i:${i + 1}"><div class="between"><h2>To-do</h2><span class="badge">${open.length} open</span></div>
+      <div class="list" style="margin-top:8px">${wf.todos.slice(-12).map((t) => `<div class="item between"><span class="row">${checkIcon(t.done ? true : null)}<span${t.done ? ' class="muted" style="text-decoration:line-through"' : ""}>${esc(t.text)}</span></span>${t.done ? "" : `<button class="btn ghost small" data-todo-done="${t.n}">Done</button>`}</div>`).join("") || `<div class="empty">No open items. Agents add them with vcmd todo add.</div>`}</div>
+      <form id="add-todo" class="row" style="margin-top:12px;gap:8px"><input class="field" name="text" placeholder="Add an item for the next session" style="flex:1;min-width:0" required><button class="btn small">Add</button></form></section>
+    <section class="card c12 rise" style="--i:${i + 2}"><div class="between"><h2>Decisions</h2><span class="small muted">.vcommand/decisions.md · append-only</span></div>
+      <div class="list" style="margin-top:8px">${wf.decisions.map((d) => `<div class="item"><p class="small">${esc(d)}</p></div>`).join("") || `<div class="empty">No decisions yet: vcmd decide "…" --why "…"</div>`}</div></section>`;
+}
+
 function vContext(s) {
-  const f = s.frame, t = s.task;
+  const f = s.frame, t = s.task, b = s.workflow.brief;
   const sources = [...f.symbols.map((x) => ({ name: x.symbol ? `${x.file}:${x.symbol}` : x.file, tag: x.symbol ? `lines ${x.lines?.[0]}–${x.lines?.[1]}` : `${x.outline} symbols` })),
                    ...(f.references.length ? [{ name: `${f.references.length} reference(s): tests, imports, uses`, tag: "blast radius" }] : []),
                    ...(f.constraints.length ? [{ name: `${f.constraints.length} lesson(s) from failed attempts`, tag: "ledger" }] : [])];
@@ -607,8 +624,11 @@ function vContext(s) {
     <section class="card violet c5 rise" style="--i:0"><div class="between" style="align-items:flex-start"><div><div class="kicker">Context frame</div>
       <h2 class="big">${esc(t ? t.goal : "No active task")}</h2></div>${character("builder", { size: 150 })}</div>
       <div class="list" style="margin-top:18px">
+        ${b ? `<div class="item"><h3>Scope</h3><p>${esc(b.scope)}</p></div>
+        <div class="item"><h3>Done condition</h3><p>${esc(b.done)}</p></div>
+        <div class="item"><h3>Leave behind</h3><p>${esc(b.leave_behind)}</p></div>` : ""}
         <div class="item"><h3>Next step</h3><p>${esc(t?.next_step || "Not set: the agent decides from the goal.")}</p></div>
-        <div class="item"><h3>Constraints</h3>${f.constraints.length ? f.constraints.slice(0, 4).map((c) => `<p class="small" style="margin-top:4px">${esc(c)}</p>`).join("") : `<p>None yet.</p>`}</div>
+        <div class="item"><h3>Constraints</h3>${(b?.constraints || []).concat(f.constraints).length ? (b?.constraints || []).concat(f.constraints).slice(0, 6).map((c) => `<p class="small" style="margin-top:4px">${esc(c)}</p>`).join("") : `<p>None yet.</p>`}</div>
         <div class="item"><h3>Acceptance checks</h3>${f.gates.length ? f.gates.map((g) => `<p class="mono" style="margin-top:4px">${esc(g)}</p>`).join("") : `<p>None configured.</p>`}</div></div></section>
     <section class="card c4 rise" style="--i:1"><h2>Included sources</h2><p>${sources.length} source${sources.length === 1 ? "" : "s"} in this frame${f.slice_parser ? ` · parsed with ${esc(f.slice_parser)}` : ""}</p>
       <div class="list" style="margin-top:10px">${sources.map((x) => `<div class="item between"><span class="row">${checkIcon(true)}<span class="mono" style="word-break:break-all">${esc(x.name)}</span></span><span class="badge good">${esc(x.tag)}</span></div>`).join("")
@@ -812,6 +832,8 @@ document.addEventListener("click", async (e) => {
     else if (el.dataset.settings) { SETTINGS = el.dataset.settings; paint(); if (SETTINGS === "keys") $("#k-value")?.focus(); }
     else if (el.dataset.connect) { SETTINGS = "keys"; paint(); $("#k-name").value = el.dataset.connect; $("#keyform").scrollIntoView({ behavior: REDUCED.matches ? "auto" : "smooth", block: "center" }); $("#k-value").focus(); }
     else if (el.dataset.delKey) { if (!confirm(`Remove ${el.dataset.delKey}?`)) return; await api("/api/secret/delete", { name: el.dataset.delKey }); toast(`Removed ${el.dataset.delKey}`); await load(); }
+    else if (el.dataset.approve || el.dataset.deny) { const id = el.dataset.approve || el.dataset.deny; await api("/api/approval", { id, approve: !!el.dataset.approve }); toast(el.dataset.approve ? `Approved ${id} (this exact command, 24 h)` : `Denied ${id}`); await load(); }
+    else if (el.dataset.todoDone) { await api("/api/todo/done", { n: el.dataset.todoDone }); toast("Marked done"); await load(); }
     else if (el.dataset.answer) { await api("/api/queue/answer", { id: el.dataset.answer, text: el.dataset.text }); toast("Answer saved. The task is back in the queue."); await load(); }
     else if (el.dataset.agent) { $("#agent-detail")?.scrollIntoView({ behavior: REDUCED.matches ? "auto" : "smooth" }); }
     else if (el.dataset.themeSet) { setTheme(el.dataset.themeSet); paint(); }
@@ -836,6 +858,8 @@ document.addEventListener("submit", async (e) => {
       toast(`Queued ${r.id}`); await load();
     } else if (f.classList.contains("answer")) {
       await api("/api/queue/answer", { id: f.dataset.id, text: data.text }); toast("Answer saved. The task is back in the queue."); await load();
+    } else if (f.id === "add-todo") {
+      await api("/api/todo/add", { text: data.text }); f.reset(); toast("Added to todo.md"); await load();
     } else if (f.id === "add-key") {
       const name = data.name === "__custom" ? (data.custom || "").trim() : data.name;
       const r = await api("/api/secret", { name, value: data.value });

@@ -23,7 +23,7 @@ import threading
 import time
 from typing import Any, TextIO
 
-from .core import CONFIG_DIR, current_task_id, list_evidence, load_config, run_task, render_evidence
+from .core import CONFIG_DIR, current_task_id, list_evidence, load_config, run_task, render_evidence, utc_now
 from .state import build_frame, render_frame, record_run_failure, changed_files as _all_changed_files
 from .isolation import DEFAULT_LINKS, IsolationError, Worktree, ensure_clean_repo
 
@@ -46,12 +46,16 @@ DEFAULT_AGENTS: dict[str, Any] = {
 from .parsers import PARSERS as COST_PARSERS  # noqa: E402
 
 AGENT_INSTRUCTIONS = """You are continuing a software task managed by V/COMMAND.
-The context frame below is the source of truth: goal, completed steps, next step,
-approaches that already failed, and acceptance gates.
-- Work in the current repository. Do not redo completed steps.
+The context frame below is the source of truth: operating brief (goal, scope, constraints, done
+condition, leave-behind), completed steps, next step, approaches that already failed, and acceptance gates.
+- Work in the current repository. Stay inside the scope; obey the constraints. Do not redo completed steps.
 - Never repeat an approach listed under hard constraints.
-- Record progress with `vcmd task done "<step>"` and `vcmd task next "<step>"` if available.
-- When finished, stop. V/COMMAND runs the acceptance gates itself; your own report is not evidence.
+- Ask before risky actions: deploys or publishing (including git push), database writes or migrations,
+  bulk or recursive deletes. Do not run them; V/COMMAND blocks them until the developer approves.
+- Leave state behind, if `vcmd` is available: progress with `vcmd task done "<step>"` and
+  `vcmd task next "<exact next step>"`, decisions with `vcmd decide "<decision>" --why "<reason>"`,
+  open items with `vcmd todo add "<item>"`. V/COMMAND writes handoff.md and the evidence (diff, gate results).
+- When the done condition is met, stop. V/COMMAND runs the acceptance gates itself; your own report is not evidence.
 """
 
 DEFAULT_MAX_STOP_BLOCKS = 3
@@ -60,7 +64,14 @@ AGENT_LABELS = {"claude": "claude-code", "codex": "codex"}
 
 
 def hook_commands(target: str) -> dict[str, str]:
-    return {"SessionStart": f"vcmd hook {target} session-start", "Stop": f"vcmd hook {target} stop"}
+    return {"SessionStart": f"vcmd hook {target} session-start", "Stop": f"vcmd hook {target} stop",
+            "PreToolUse": f"vcmd hook {target} pre-tool", "PreCompact": f"vcmd hook {target} pre-compact"}
+
+
+HOOK_EVENTS = ("session-start", "stop", "pre-tool", "pre-compact")
+# Claude Code names its shell tool "Bash"; Codex hooks are installed without a matcher and the handler
+# looks for a shell command in the tool input.
+HOOK_MATCHERS = {("claude", "PreToolUse"): "Bash"}
 
 
 CLAUDE_HOOK_COMMANDS = hook_commands("claude")  # backwards-compatible name
@@ -133,6 +144,10 @@ def provider_failure_reason(item: dict[str, Any]) -> str | None:
         return f"could not launch ({action['error_type']})"
     if action.get("timed_out"):
         return "timed out"
+    # Stopped by V/COMMAND itself (stream guard, guardrail, cancelled race): not the provider's fault.
+    # Found live: a guardrail kill (exit -9, no edits) opened the circuit and the agent was skipped.
+    if action.get("killed") or action.get("cancelled"):
+        return None
     # The agent reported how it ended: running out of turns or finishing is the agent's outcome,
     # not an outage (found live: --max-turns runs exit 1 without edits and were misread as outages).
     if item.get("agent_result") in AGENT_OUTCOMES:
@@ -166,7 +181,14 @@ def open_circuits(root: Path, now: float | None = None) -> dict[str, dict[str, A
     return {a: h for a, h in load_health(root).items() if isinstance(h, dict) and h.get("open_until", 0) > now}
 
 
-def parser_context(root: Path, cfg: dict[str, Any], argv: list[str]) -> dict[str, Any]:
+def guard_root(root: Path, extra_env: dict[str, str] | None = None) -> Path:
+    """Where approval requests live: the main project, also for parallel queue workers."""
+    q = (extra_env or {}).get("VCOMMAND_QUEUE_ROOT") or os.environ.get("VCOMMAND_QUEUE_ROOT")
+    return Path(q) if q else root
+
+
+def parser_context(root: Path, cfg: dict[str, Any], argv: list[str], *, agent: str | None = None,
+                   extra_env: dict[str, str] | None = None) -> dict[str, Any]:
     """What output parsers need: banned patterns (ledger + config) and price table for estimates."""
     from .state import read_ledger
     banned = [{"pattern": e["pattern"], "reason": e.get("failure", "")} for e in read_ledger(root) if e.get("pattern")]
@@ -175,7 +197,9 @@ def parser_context(root: Path, cfg: dict[str, Any], argv: list[str]) -> dict[str
     for flag in ("-m", "--model"):
         if flag in argv and argv.index(flag) + 1 < len(argv):
             model = argv[argv.index(flag) + 1]
-    return {"banned": banned, "prices": cfg.get("prices", {}), "model": model}
+    guard = {"root": str(guard_root(root, extra_env)), "cfg": cfg, "agent": agent,
+             "queue_task": (extra_env or {}).get("VCOMMAND_QUEUE_TASK") or os.environ.get("VCOMMAND_QUEUE_TASK")}
+    return {"banned": banned, "prices": cfg.get("prices", {}), "model": model, "guardrails": guard}
 
 
 def _task_spend(root: Path) -> tuple[float, int]:
@@ -212,6 +236,34 @@ def agent_env(root: Path, extra: dict[str, str] | None = None) -> dict[str, str]
 
 
 STOPPED_FOR_HUMAN = 3  # run_agents exit code: an agent asked for a human decision
+
+
+def _approval_stop(root: Path, item: dict[str, Any], since: str, extra_env: dict[str, str] | None,
+                   out: TextIO) -> bool:
+    """A guardrail blocked a risky command during this attempt (hook or stream guard).
+
+    Verified work stands (the agent finished without the command); otherwise the task waits for the
+    developer instead of handing the same blocked step to the next agent."""
+    from .workflow import pending_approvals
+    groot = guard_root(root, extra_env)
+    new = [a for a in pending_approvals(groot) if a.get("requested_at_utc", "") >= since]
+    if not new:
+        return False
+    for a in new:
+        print(f"V/  APPROVAL   {a['id']}: {a['rule']} `{a['command'][:120]}` blocked; approve: vcmd approve {a['id']}",
+              file=out)
+    if item["status"] == "verified_by_configured_checks":
+        return False
+    task = (extra_env or {}).get("VCOMMAND_QUEUE_TASK")
+    if task:
+        from . import queue as q
+        try:
+            q.ask(groot, task, f"Approve {new[0]['rule']} command `{new[0]['command'][:200]}`?",
+                  [f"vcmd approve {new[0]['id']}", f"vcmd approve {new[0]['id']} --deny"])
+        except (ValueError, FileNotFoundError):
+            pass
+    print("V/  FROZEN     waiting for your approval decision (`vcmd approve list`)", file=out)
+    return True
 
 
 def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, instruction: str | None = None,
@@ -277,8 +329,11 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
                  for a in spec["argv"]]
         print(f"\nV/  HANDOFF    attempt {n}/{attempts} -> {name}", file=out, flush=True)
         common = dict(timeout=timeout, check_timeout=check_timeout, agent=name, record_argv=shown, gates_judge=True,
-                      child_stdin=subprocess.DEVNULL, env=agent_env(root, extra_env), cost_parser=spec["cost"],
-                      extra_checks=extra_checks, parser_context=parser_context(root, cfg, spec["argv"]))
+                      child_stdin=subprocess.DEVNULL, env=agent_env(root, {**(extra_env or {}), "VCOMMAND_AGENT": name}),
+                      cost_parser=spec["cost"],
+                      extra_checks=extra_checks,
+                      parser_context=parser_context(root, cfg, spec["argv"], agent=name, extra_env=extra_env))
+        attempt_started = utc_now()
         if isolate:
             with Worktree(repo, head, links) as wt:
                 print(f"V/  ISOLATE    worktree at {head[:12]} ({wt.path})", file=out, flush=True)
@@ -287,6 +342,9 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
                 item = run_task(root, argv, cwd=wt.path, isolated=True, **common)
                 print(render_evidence(item), file=out)
                 record_health(root, name, provider_failure_reason(item), cooldown)
+                if _approval_stop(root, item, attempt_started, extra_env, out):
+                    print("V/  DISCARDED  attempt changes (they wait for your approval decision)", file=out)
+                    return STOPPED_FOR_HUMAN
                 asked = stop_check(wt.path) if stop_check else None
                 if asked:
                     print(f"V/  FROZEN     {asked}; attempt discarded", file=out)
@@ -305,6 +363,8 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
             item = run_task(root, argv, **common)
             print(render_evidence(item), file=out)
             record_health(root, name, provider_failure_reason(item), cooldown)
+            if _approval_stop(root, item, attempt_started, extra_env, out):
+                return STOPPED_FOR_HUMAN
             asked = stop_check(root) if stop_check else None
             if asked:
                 print(f"V/  FROZEN     {asked}", file=out)
@@ -368,7 +428,7 @@ def run_race(root: Path, agents: list[str], *, instruction: str | None = None, t
                 item = run_task(root, argv, timeout=timeout, check_timeout=check_timeout, agent=name,
                                 record_argv=shown, gates_judge=True, child_stdin=subprocess.DEVNULL,
                                 child_stdout=subprocess.DEVNULL, env=agent_env(root), cost_parser=spec["cost"],
-                                parser_context=parser_context(root, cfg, spec["argv"]), cwd=wt.path,
+                                parser_context=parser_context(root, cfg, spec["argv"], agent=name), cwd=wt.path,
                                 isolated=True, cancel=cancel, log=_Quiet())
                 results[name] = item
                 if item["status"] == "verified_by_configured_checks":
@@ -461,7 +521,60 @@ def hook_session_start(payload: dict[str, Any], out: TextIO) -> int:
         return 0  # project not initialized: stay silent
     source = payload.get("source", "startup")
     out.write(f"[V/COMMAND] Session {source}: project state restored from disk.\n\n")
+    from .workflow import read_handoff
+    handoff = read_handoff(root)
+    if handoff:
+        out.write("## Handoff from the previous session (.vcommand/handoff.md)\n")
+        out.write(handoff.replace("# Handoff", "### Handoff", 1) + "\n")
     out.write(build_prompt(frame))
+    return 0
+
+
+def hook_pre_tool(payload: dict[str, Any], out: TextIO, target: str = "claude") -> int:
+    """PreToolUse: risky shell commands (deploy, DB write, bulk delete) need the developer's approval.
+
+    Interactive Claude Code: "ask" — Claude Code shows its own permission prompt to the developer.
+    Codex, and every agent wrapped by V/COMMAND (no human at the keyboard): "deny" plus an approval
+    request the developer answers with `vcmd approve <id>`; the exact command may then run."""
+    from .workflow import classify_command, is_approved, guard_command, blocked_message
+    root, _ = _hook_dirs(payload)
+    try:
+        cfg = load_config(root)
+    except FileNotFoundError:
+        return 0
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if isinstance(command, list):
+        command = " ".join(str(c) for c in command)
+    if not isinstance(command, str) or not command.strip():
+        return 0
+    groot = guard_root(root)
+    if target == "claude" and not os.environ.get("VCOMMAND_WRAPPED"):
+        rule = classify_command(cfg, command)
+        if rule is None or is_approved(groot, command):
+            return 0
+        decision, reason = "ask", (f"V/COMMAND guardrail: this is a {rule} action. Allow it only if you "
+                                   f"intended it now.")
+    else:
+        req = guard_command(groot, cfg, command, agent=AGENT_LABELS.get(target, target),
+                            queue_task=os.environ.get("VCOMMAND_QUEUE_TASK"))
+        if req is None:
+            return 0
+        decision, reason = "deny", blocked_message(req)
+    json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": decision,
+                                      "permissionDecisionReason": reason}}, out)
+    out.write("\n")
+    return 0
+
+
+def hook_pre_compact(payload: dict[str, Any], out: TextIO) -> int:
+    """PreCompact: checkpoint before the context is summarized; SessionStart(compact) re-injects it."""
+    from .workflow import write_handoff
+    root, _ = _hook_dirs(payload)
+    try:
+        write_handoff(root)
+    except FileNotFoundError:
+        return 0
     return 0
 
 
@@ -519,6 +632,10 @@ def run_hook(target: str, event: str, stdin: TextIO, out: TextIO, err: TextIO) -
         return hook_session_start(payload, out)
     if event == "stop":
         return hook_stop(payload, out, err, target)
+    if event == "pre-tool":
+        return hook_pre_tool(payload, out, target)
+    if event == "pre-compact":
+        return hook_pre_compact(payload, out)
     raise ValueError(f"Unknown hook event: {event}")
 
 
@@ -549,6 +666,8 @@ def install_hooks(root: Path, target: str = "claude", settings: Path | None = No
                       for h in g.get("hooks", []) if isinstance(h, dict))
         if not present:
             group: dict[str, Any] = {"hooks": [{"type": "command", "command": command}]}
+            if (target, event) in HOOK_MATCHERS:
+                group = {"matcher": HOOK_MATCHERS[(target, event)], **group}
             if event == "Stop":
                 group["hooks"][0]["timeout"] = 900  # gates may run full test suites
             groups.append(group)

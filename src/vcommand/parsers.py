@@ -24,6 +24,10 @@ UNKNOWN = {"currency": "USD", "amount": None, "source": "unavailable"}
 class _Base:
     # how the agent itself ended the run, when it says so ("success", "error_max_turns", ...)
     result_subtype: str | None = None
+    # the agent's final answer (used by text roles: planner, reviewer); never persisted
+    final_text: str | None = None
+    # set when the guardrail stopped a risky shell command: {"command", "rule", "approval"}
+    guardrail_hit: dict[str, Any] | None = None
 
     def __init__(self, echo, context: dict[str, Any] | None = None):
         self.echo = echo
@@ -38,6 +42,23 @@ class _Base:
     def _say(self, text: str) -> None:
         if text and text.strip():
             self.echo.write(text.rstrip() + "\n")
+
+    def _guard_shell(self, command: Any) -> str | None:
+        """Backstop for the PreToolUse hook: a risky shell command without approval stops the agent."""
+        g = self.context.get("guardrails")
+        if not g or not command:
+            return None
+        if isinstance(command, list):
+            command = " ".join(str(c) for c in command)
+        if not isinstance(command, str):
+            return None
+        from pathlib import Path
+        from .workflow import guard_command
+        req = guard_command(Path(g["root"]), g["cfg"], command, agent=g.get("agent"), queue_task=g.get("queue_task"))
+        if req is None:
+            return None
+        self.guardrail_hit = {"command": req["command"], "rule": req["rule"], "approval": req["id"]}
+        return f"guardrail: {req['rule']} command needs approval ({req['id']}: vcmd approve {req['id']})"
 
 
 class ClaudeJson(_Base):
@@ -60,6 +81,7 @@ class ClaudeJson(_Base):
             return dict(UNKNOWN)
         if isinstance(data.get("result"), str):
             self._say(data["result"])
+            self.final_text = data["result"]
         self.result_subtype = data.get("subtype") if isinstance(data.get("subtype"), str) else None
         return _claude_cost(data)
 
@@ -88,6 +110,8 @@ class ClaudeStream(_Base):
             return None
         if event.get("type") == "result":
             self.cost = _claude_cost(event)
+            if isinstance(event.get("result"), str):
+                self.final_text = event["result"]
             self.result_subtype = event.get("subtype") if isinstance(event.get("subtype"), str) else None
             return None
         if event.get("type") != "assistant":
@@ -99,6 +123,10 @@ class ClaudeStream(_Base):
                 self._say(block.get("text", ""))
             elif block.get("type") == "tool_use" and block.get("name") in EDIT_TOOLS:
                 reason = self._check(block.get("input") or {})
+                if reason:
+                    return reason
+            elif block.get("type") == "tool_use" and block.get("name") == "Bash":
+                reason = self._guard_shell((block.get("input") or {}).get("command"))
                 if reason:
                     return reason
         return None
@@ -143,6 +171,10 @@ class CodexJsonl(_Base):
         item = event.get("item") or {}
         if event.get("type") == "item.completed" and item.get("type") in {"agent_message", "assistant_message"}:
             self._say(item.get("text", ""))
+            if isinstance(item.get("text"), str) and item["text"].strip():
+                self.final_text = item["text"]
+        if event.get("type") in {"item.started", "item.completed"} and item.get("type") == "command_execution":
+            return self._guard_shell(item.get("command"))
         return None
 
     def finish(self) -> dict[str, Any]:

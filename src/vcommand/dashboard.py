@@ -149,7 +149,22 @@ def collect_state(root: Path) -> dict[str, Any]:
         "secrets": {"backend": describe_backend(), "stored": stored, "error": secret_error,
                     "known": [{"name": k, "label": v} for k, v in KNOWN.items()]},
         "budget": cfg.get("budget", {}),
+        "workflow": _workflow_state(root, cfg, frame),
     }
+
+
+def _workflow_state(root: Path, cfg: dict[str, Any], frame: dict[str, Any]) -> dict[str, Any]:
+    from . import workflow as w
+    vc = root / CONFIG_DIR
+
+    def head(name: str, limit: int = 4000) -> str | None:
+        f = vc / name
+        return f.read_text(encoding="utf-8", errors="replace")[:limit] if f.exists() else None
+
+    return {"brief": frame.get("brief"), "handoff": w.read_handoff(root), "todos": w.read_todos(root),
+            "decisions": list(reversed(w.read_decisions(root)[-30:])),
+            "approvals": list(reversed(w.list_approvals(root)[-30:])),
+            "roles": cfg.get("roles") or {}, "plan": head(w.PLAN_FILE), "review": head(w.REVIEW_FILE)}
 
 
 # ---------------------------------------------------------------- HTTP
@@ -263,6 +278,16 @@ class _Handler(BaseHTTPRequestHandler):
             focus = [str(f) for f in body.get("focus", []) if str(f).strip()]
             t = q.add_task(self.root, str(body.get("goal", "")), focus=focus, gates=gates)
             return {"ok": True, "id": t["id"]}
+        if path == "/api/approval":
+            from .workflow import decide_approval
+            a = decide_approval(self.root, str(body.get("id", "")), bool(body.get("approve")))
+            return {"ok": True, "id": a["id"], "status": a["status"]}
+        if path == "/api/todo/add":
+            from .workflow import add_todo
+            return {"ok": True, **add_todo(self.root, str(body.get("text", "")))}
+        if path == "/api/todo/done":
+            from .workflow import complete_todo
+            return {"ok": True, **complete_todo(self.root, str(body.get("n", "")))}
         if path == "/api/health/reset":
             (self.root / CONFIG_DIR / "agent_health.json").unlink(missing_ok=True)
             return {"ok": True}

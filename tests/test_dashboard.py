@@ -150,6 +150,20 @@ class DashboardServerTests(SecretEnv):
         self.assertIn(b"Ship the dashboard", frame)
         self.assertEqual(self.req("POST", "/api/nope", {})[0], 400)
 
+    def test_workflow_actions(self):
+        from vcommand import workflow as w
+        req = w.request_approval(self.root, "npm publish", "publish", agent="claude")
+        self.assertEqual(self.req("POST", "/api/todo/add", {"text": "write docs"})[0], 200)
+        state = json.loads(self.req("GET", "/api/state")[1])["workflow"]
+        self.assertEqual(state["approvals"][0]["status"], "pending")
+        self.assertEqual(state["todos"][0]["text"], "write docs")
+        self.assertIn("brief", state)
+        self.assertEqual(self.req("POST", "/api/approval", {"id": req["id"], "approve": False})[0], 200)
+        self.assertEqual(w.list_approvals(self.root)[0]["status"], "denied")
+        self.assertEqual(self.req("POST", "/api/approval", {"id": req["id"], "approve": True})[0], 400)
+        self.assertEqual(self.req("POST", "/api/todo/done", {"n": "1"})[0], 200)
+        self.assertEqual(w.open_todos(self.root), [])
+
 
 class CommandTests(unittest.TestCase):
     def test_slash_command_installed_with_claude_hooks(self):

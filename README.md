@@ -30,6 +30,7 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Failover, cost, budget:** agents whose provider fails are skipped for a cooldown; Claude Code's reported cost is recorded per attempt; `--budget` stops spending on a task.
 - **Benchmark:** `vcmd bench` compares `agent:plain` vs `agent:frame` on a task suite (see [benchmarks/](benchmarks/README.md)). Measured on 200 TypeScript tasks with Claude Haiku: no pass-rate benefit from the frame so far (200/200 both ways, also after a failed first attempt) at +5–7% cost — published as measured.
 - **Local backup and overnight queue:** `vcmd hw` recommends an Ollama model that fits your machine and registers it as a fallback agent; `vcmd queue` runs tasks overnight, commits only verified work and keeps questions for you.
+- **Persistent workflow for every agent** ([docs/WORKFLOW.md](docs/WORKFLOW.md)): five-field operating brief (`vcmd task start --scope --constraint --done --leave-behind`); `handoff.md` (goal, state, files touched, open issues, next step) rewritten after every run, hook stop and compaction; `vcmd decide` / `vcmd todo`; deploys, publishing, database writes and bulk deletes need `vcmd approve` (PreToolUse hook + stream guard); `vcmd loop` runs planner → builder(s) → reviewer with the gates as judge; `vcmd wake` + `vcmd schedule cron|systemd|github` continue the work from a trigger.
 - No API dependency, no background daemon, no telemetry, no cloud account.
 - Python 3.10+, Windows/macOS/Linux intended; tested in CI matrix.
 
@@ -103,6 +104,16 @@ from the internet.
 - **Local only.** Binds to 127.0.0.1, every request needs the random token from the URL, the Host header
   must be loopback (DNS-rebinding protection), actions accept JSON only.
 
+### Brief, roles, guardrails, triggers
+
+```bash
+vcmd task start "Add password reset" --scope "src/auth/*" --constraint "no new deps" --done "npm test passes"
+vcmd loop --plan claude --build claude --build codex --review codex   # plan -> build/test -> review
+vcmd approve                     # risky commands agents asked to run (deploy, DB write, bulk delete)
+vcmd handoff                     # 1 goal  2 state  3 files touched  4 open issues  5 next step
+vcmd schedule github claude --loop --write   # nightly / webhook wake-up; verified work lands on a branch
+```
+
 ### Overnight queue
 
 ```bash
@@ -155,6 +166,9 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | Local semantic memory / savings measurements | Planned |
 | Auto-repair on failed verification | Planned |
 | Local web dashboard + API keys in the OS secret store | Implemented (`vcmd dashboard`, `/dashboard`, `vcmd secret`) |
+| Operating brief, handoff.md / decisions.md / todo.md, diff in evidence | Implemented (`vcmd task brief`, `vcmd handoff`, `vcmd decide`, `vcmd todo`) |
+| Approval for deploy / publish / DB write / bulk delete | Implemented (pattern-based PreToolUse hook + stream guard; not a sandbox) |
+| Role loop (plan → build → review) and trigger wake-up | Implemented (`vcmd loop`, `vcmd wake`, `vcmd schedule`) |
 | Advanced TUI and IDE companions | Planned |
 
 ## Project principles
@@ -170,6 +184,7 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 - [Full product concept (Polish)](docs/CONCEPT_PL.md)
 - [Architecture and evidence contract](docs/ARCHITECTURE.md)
 - [Agent adapters (Claude Code, Codex CLI)](docs/ADAPTERS.md)
+- [Persistent workflow: brief, handoff, guardrails, roles, triggers](docs/WORKFLOW.md)
 - [Execution Kernel: stateless models, context frames, roadmap](docs/EXECUTION_KERNEL.md)
 - [MVP acceptance criteria](docs/MVP.md)
 - [Milestones and GitHub issues](docs/ROADMAP.md)

@@ -28,6 +28,8 @@ claude
 |---|---|
 | `SessionStart` (startup, resume, `/clear`, compaction) | Prints the context frame; Claude Code adds it to the model's context. After a compaction or a fresh session the goal, completed steps, next step, failed approaches and gates are back. |
 | `Stop` | Runs the configured checks (output goes to stderr). All pass → Claude may stop and evidence is written. A check fails → the stop is blocked with the failing gate as the reason, and the failure is added to the ledger. After `claude_max_stop_blocks` (default 3) blocked stops in a session, Claude is allowed to stop with a "Not verified" message, so a session can never loop forever. |
+| `PreToolUse` (Claude Code: matcher `Bash`; Codex: all tools) | Risky shell commands (deploy, publish, DB write, bulk delete): interactive Claude Code gets `ask` (its own permission prompt); Codex and wrapped agents get `deny` plus an approval request for `vcmd approve`. See [WORKFLOW.md](WORKFLOW.md#3-guardrails-ask-before-deploys-database-writes-and-bulk-deletes). |
+| `PreCompact` | Writes `.vcommand/handoff.md` before the context is summarized; `SessionStart` injects it again with the frame. |
 
 Settings:
 
@@ -180,3 +182,13 @@ The model key is the `-m` / `--model` value in the agent template.
 
 `opencode run {prompt}` (checked against opencode 1.19.5). OpenCode asks before some actions;
 `--auto` approves everything not explicitly denied — add it to your template only deliberately.
+
+## Verification status of the newer hooks
+
+* Claude Code `PreToolUse` / `PreCompact`: protocol per the Claude Code hooks documentation; the
+  wrapped path (stream guard + approval + retry after `vcmd approve`) was verified live with
+  Claude Haiku. The interactive `ask` prompt was not exercised in this environment.
+* Codex `PreToolUse` / `PreCompact`: the event names and the `permissionDecision` field are present
+  in codex-cli 0.166; a live Codex run was not possible here (no Codex login), so treat Codex
+  enforcement as unverified until you see a blocked command in your own session. The `codex-jsonl`
+  stream guard on `command_execution` events is covered by unit tests only.

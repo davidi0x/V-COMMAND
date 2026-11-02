@@ -18,12 +18,15 @@ from typing import Any
 
 from .core import CONFIG_DIR, list_evidence, load_config, git_status, utc_now
 from .slice import build_slice, parse_focus, render_slice
+from .workflow import brief_view, render_brief, open_todos, read_decisions, pending_approvals
 
 FRAME_VERSION = 1
 _LEDGER_LOCK = threading.Lock()  # parallel attempts / queue workers append from several threads
 MAX_TEXT = 500           # per ledger field; keeps frames small and limits accidental leakage
 MAX_LEDGER_IN_FRAME = 20
 MAX_STATUS_LINES = 50
+MAX_TODOS_IN_FRAME = 15
+MAX_DECISIONS_IN_FRAME = 8
 
 
 # ---------------------------------------------------------------- task checkpoint
@@ -57,10 +60,29 @@ def _clean(text: str, field: str) -> str:
     return text[:MAX_TEXT]
 
 
-def start_task(root: Path, goal: str) -> dict[str, Any]:
+def start_task(root: Path, goal: str, brief: dict[str, Any] | None = None) -> dict[str, Any]:
+    """brief: operating-brief fields (scope, constraints, done, leave_behind), see workflow.normalize_brief."""
     load_config(root)  # must be initialized
     task = {"schema_version": 1, "id": "task-" + uuid.uuid4().hex[:8], "goal": _clean(goal, "goal"),
             "created_at_utc": utc_now(), "completed_steps": [], "next_step": None}
+    if brief and any(brief.values()):
+        task["brief"] = brief
+    _save_task(root, task)
+    return task
+
+
+def set_brief(root: Path, *, scope: str | None = None, constraints: list[str] | None = None,
+              done: str | None = None, leave_behind: str | None = None, clear_constraints: bool = False) -> dict[str, Any]:
+    """Update operating-brief fields of the current task; unspecified fields are kept, constraints appended."""
+    from .workflow import normalize_brief
+    task = _require_task(root)
+    new = normalize_brief(scope, constraints, done, leave_behind)
+    brief = dict(task.get("brief") or {})
+    for key in ("scope", "done", "leave_behind"):
+        if new[key]:
+            brief[key] = new[key]
+    brief["constraints"] = ([] if clear_constraints else list(brief.get("constraints") or [])) + new["constraints"]
+    task["brief"] = brief
     _save_task(root, task)
     return task
 
@@ -232,7 +254,7 @@ def build_frame(root: Path, code_root: Path | None = None) -> dict[str, Any]:
     cfg = load_config(root)
     task = load_task(root)
     ledger = read_ledger(root)
-    runs = list_evidence(root)
+    runs = [r for r in list_evidence(root) if not r.get("text_role")]  # planner/reviewer answers have no gates
     last = runs[-1] if runs else None
     status = git_status(code)
     frame: dict[str, Any] = {
@@ -243,6 +265,7 @@ def build_frame(root: Path, code_root: Path | None = None) -> dict[str, Any]:
             "completed_steps": [s["step"] for s in task["completed_steps"]],
             "next_step": task.get("next_step"),
         },
+        "brief": brief_view(task, [" ".join(c) for c in cfg["checks"]]),
         "focus": None if task is None else task.get("focus") or None,
         "code_slice": build_slice(code, task["focus"]) if task and task.get("focus") else None,
         "acceptance_gates": [" ".join(c) for c in cfg["checks"]],
@@ -252,6 +275,9 @@ def build_frame(root: Path, code_root: Path | None = None) -> dict[str, Any]:
         ],
         "negative_knowledge_omitted": max(0, len(ledger) - MAX_LEDGER_IN_FRAME),
         "preflight_hints": preflight_hints(ledger, (task or {}).get("focus")),
+        "open_todos": open_todos(root)[:MAX_TODOS_IN_FRAME],
+        "recent_decisions": read_decisions(root)[-MAX_DECISIONS_IN_FRAME:],
+        "pending_approvals": [{k: a.get(k) for k in ("id", "rule", "command")} for a in pending_approvals(root)],
         "last_run": None if last is None else {
             "id": last["id"], "status": last["status"],
             "failed_checks": [" ".join(c["argv"]) for c in last["checks"] if not c["passed"]],
@@ -280,6 +306,8 @@ def render_frame(frame: dict[str, Any]) -> str:
     task = frame["task"]
     if task:
         out += ["## Goal", task["goal"], ""]
+        if frame.get("brief"):
+            out += render_brief(frame["brief"])
         if task["completed_steps"]:
             out += ["## Already done (do not redo)"] + [f"- {s}" for s in task["completed_steps"]] + [""]
         out += ["## Next step", task["next_step"] or "Not set — decide from the goal and the state below.", ""]
@@ -292,6 +320,15 @@ def render_frame(frame: dict[str, Any]) -> str:
             out.append(f"- {e['constraint']}{who}")
         if frame["negative_knowledge_omitted"]:
             out.append(f"- …{frame['negative_knowledge_omitted']} older entries omitted (`vcmd ledger list`)")
+        out.append("")
+    if frame.get("open_todos"):
+        out += ["## Open to-dos (.vcommand/todo.md)"] + [f"- [ ] {t}" for t in frame["open_todos"]] + [""]
+    if frame.get("recent_decisions"):
+        out += ["## Decisions already made (.vcommand/decisions.md; do not reopen without new evidence)"]
+        out += [f"- {d}" for d in frame["recent_decisions"]] + [""]
+    if frame.get("pending_approvals"):
+        out.append("## Waiting for the developer's approval (do not run or work around)")
+        out += [f"- {a['id']}: {a['rule']} `{a['command'][:160]}`" for a in frame["pending_approvals"]]
         out.append("")
     if frame.get("preflight_hints"):
         out.append("## Pre-flight warnings (counted from this project's ledger)")

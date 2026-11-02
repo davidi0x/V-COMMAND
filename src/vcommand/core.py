@@ -166,6 +166,8 @@ def execute(argv: list[str], root: Path, timeout: int, stdout: int | None = None
     code = proc.wait()
     if reader is not None:
         reader.join(timeout=2)
+        if not reader.is_alive():
+            proc.stdout.close()
     result = {"argv": argv, "exit_code": 124 if timed_out else code, "duration_ms": elapsed(),
               "timed_out": timed_out, "passed": code == 0 and not (timed_out or cancelled or stop_reason)}
     if stop_reason:
@@ -204,7 +206,8 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
              gates_judge: bool = False, child_stdin: int | None = None, cwd: Path | None = None,
              env: dict[str, str] | None = None, isolated: bool = False,
              cost_parser: str | None = None, extra_checks: list[list[str]] | None = None,
-             parser_context: dict[str, Any] | None = None, cancel: threading.Event | None = None) -> dict[str, Any]:
+             parser_context: dict[str, Any] | None = None, cancel: threading.Event | None = None,
+             run_checks: bool = True) -> dict[str, Any]:
     """Execute `argv`, then the configured checks, and persist evidence.
 
     external=True: the work was done elsewhere (e.g. an interactive agent session ending);
@@ -213,7 +216,11 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
     gates_judge=True: run the checks even when the command exits non-zero or times out (an agent's
     exit code is a self-report); status then follows the checks. Launch errors still skip checks.
     cwd: where the command and checks run (e.g. an isolated worktree); state stays in `root`.
+    run_checks=False: a text-only role (planner, reviewer); no gates run, status is at best unverified.
+    The returned dict also carries `agent_text` (the agent's final answer, when its parser reports it);
+    that key is not persisted.
     """
+    checks_enabled = run_checks
     work = cwd or root
     if not argv:
         raise ValueError("Missing command")
@@ -245,16 +252,18 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
     # edit made within the same second with the same file size.
     check_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     # killed by the stream guard or cancelled by a winning parallel attempt: nothing to verify
-    run_checks = action["passed"] or (gates_judge and "error_type" not in action
+    run_checks = checks_enabled and action["passed"] or (checks_enabled and gates_judge and "error_type" not in action
                                       and not action.get("killed") and not action.get("cancelled"))
     if run_checks:
         for check_argv in cfg["checks"] + list(extra_checks or []):
             print(f"V/  VERIFY     {' '.join(check_argv)}", file=log, flush=True)
             checks.append(execute(check_argv, work, check_timeout, stdout=child_stdout, env=check_env))
-    else:
+    elif checks_enabled:
         print("V/  CHECKS     skipped: execution failed", file=log, flush=True)
     # No checks -> unverified, even when action exit code is 0.
-    if not run_checks:
+    if not checks_enabled:
+        status = "unverified" if action["passed"] else "failed"
+    elif not run_checks:
         status = "failed"
     elif not checks:
         status = "unverified" if action["passed"] else "failed"
@@ -279,10 +288,25 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
             "Mode is a saved preference only; it does not enforce network isolation or route models."
         ]
     }
+    if not checks_enabled:
+        evidence["text_role"] = True  # planner / reviewer answer: no gates by design
+    guard_hit = getattr(parser, "guardrail_hit", None) if not external and parser is not None else None
+    if guard_hit:
+        evidence["guardrail"] = guard_hit
+    from . import workflow
+    try:
+        evidence["diff"] = workflow.save_patch(root, work, task_id)
+    except (OSError, ValueError):
+        evidence["diff"] = None
     dest = root / CONFIG_DIR / "runs" / f"{task_id}.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return evidence
+    try:  # the leave-behind for the next session; never fail a run because of it
+        workflow.write_handoff(root, None if evidence.get("text_role") else evidence)
+    except (OSError, ValueError, FileNotFoundError, KeyError):
+        pass
+    text = getattr(parser, "final_text", None) if not external and parser is not None else None
+    return {**evidence, "agent_text": text} if text else evidence
 
 
 def read_evidence(root: Path, task_id: str = "last") -> dict[str, Any]:

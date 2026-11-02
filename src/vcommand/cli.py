@@ -12,7 +12,7 @@ import tempfile
 from . import __version__
 from .core import (project_root, MODES, init_project, load_config, save_config, run_task,
                    read_evidence, render_evidence, list_evidence)
-from .state import (start_task, load_task, complete_step, set_next_step, clear_task, set_focus,
+from .state import (start_task, load_task, complete_step, set_next_step, clear_task, set_focus, set_brief,
                     add_ledger_entry, read_ledger, record_run_failure, build_frame, render_frame)
 from .isolation import IsolationError
 from .demo import run_demo
@@ -46,7 +46,15 @@ def make_parser() -> argparse.ArgumentParser:
     run.add_argument("argv", nargs=argparse.REMAINDER)
     task = sub.add_parser("task", help="Task checkpoint kept outside any model session")
     task_sub = task.add_subparsers(dest="task_action", required=True)
-    task_sub.add_parser("start", help="Start a new task (replaces the current one)").add_argument("goal")
+    t_start = task_sub.add_parser("start", help="Start a new task with its operating brief (replaces the current one)")
+    t_start.add_argument("goal")
+    t_brief = task_sub.add_parser("brief", help="Set operating-brief fields of the current task")
+    for tp in (t_start, t_brief):
+        tp.add_argument("--scope", help="What is in scope (and implicitly what is not)")
+        tp.add_argument("--constraint", action="append", default=[], help="Hard rule for every agent (repeatable)")
+        tp.add_argument("--done", help="Done condition, e.g. 'tests pass and /login returns 200'")
+        tp.add_argument("--leave-behind", help="What every session must leave (default: handoff.md + evidence)")
+    t_brief.add_argument("--clear-constraints", action="store_true")
     task_sub.add_parser("done", help="Record a completed step").add_argument("step")
     task_sub.add_parser("next", help="Set the next step to hand over").add_argument("step")
     task_sub.add_parser("show", help="Show the current task")
@@ -63,6 +71,48 @@ def make_parser() -> argparse.ArgumentParser:
     ledger_add.add_argument("--agent", help="Agent/model that made the attempt")
     ledger_add.add_argument("--pattern", help="Literal code the stream guard must refuse in later edits, e.g. 'jwt.destroy('")
     ledger_sub.add_parser("list", help="List recorded failed approaches")
+    decide = sub.add_parser("decide", help="Record a decision in .vcommand/decisions.md (append-only)")
+    decide.add_argument("text")
+    decide.add_argument("--why", help="Reason")
+    decide.add_argument("--agent", help="Who decided (default: VCOMMAND agent env or 'developer')")
+    sub.add_parser("decisions", help="List recorded decisions")
+    todo = sub.add_parser("todo", help="Open items for the next session (.vcommand/todo.md)")
+    todo_sub = todo.add_subparsers(dest="todo_action", required=True)
+    todo_sub.add_parser("add", help="Add an item").add_argument("text")
+    todo_sub.add_parser("done", help="Close an item by number or unique text").add_argument("ref")
+    todo_sub.add_parser("list", help="List items")
+    handoff = sub.add_parser("handoff", help="5-line handoff: goal, state, files touched, open issues, next step")
+    handoff.add_argument("--write", action="store_true", help="Rewrite .vcommand/handoff.md now (checkpoint)")
+    handoff.add_argument("--out", help="Also write it to this file (e.g. handoff.md in the repo)")
+    approve = sub.add_parser("approve", help="Approve or deny risky commands agents asked to run (deploy, DB write, bulk delete)")
+    approve.add_argument("id", nargs="?", help="Approval id (apr-…); omit or 'list' to list")
+    approve.add_argument("--deny", action="store_true")
+    approve.add_argument("--all", action="store_true", help="With list: include decided requests")
+    guard = sub.add_parser("guard", help="Check how the guardrails classify a shell command")
+    guard.add_argument("shell", nargs=argparse.REMAINDER, metavar="command")
+    loop = sub.add_parser("loop", help="Role loop: plan -> build/test (gates) -> review -> handoff")
+    loop.add_argument("--plan", help="Planner agent (default: config roles.plan; 'none' to skip)")
+    loop.add_argument("--build", action="append", default=[], help="Builder agent(s), in failover order")
+    loop.add_argument("--review", help="Reviewer agent (default: config roles.review; 'none' to skip)")
+    loop.add_argument("--rounds", type=int, help="Build/review rounds (default: config roles.rounds or 2)")
+    loop.add_argument("--attempts", type=int, help="Build attempts per round (default: one per builder)")
+    loop.add_argument("--timeout", type=int, default=3600)
+    loop.add_argument("--check-timeout", type=int, default=600)
+    loop.add_argument("--budget", type=float)
+    wake = sub.add_parser("wake", help="Trigger entry point (cron/CI/webhook): continue queue or active task")
+    wake.add_argument("agents", nargs="*", help="Agents (default: config wake.agents or roles.build)")
+    wake.add_argument("--loop", action="store_true", help="Continue the active task with the role loop")
+    wake.add_argument("--max-tasks", type=int)
+    wake.add_argument("--until", help="Do not start new queue tasks after HH:MM")
+    wake.add_argument("--budget", type=float)
+    wake.add_argument("--timeout", type=int, default=3600)
+    wake.add_argument("--jobs", type=int, default=1)
+    sched = sub.add_parser("schedule", help="Print a trigger that runs `vcmd wake` (cron, systemd, GitHub Actions)")
+    sched.add_argument("kind", choices=["cron", "systemd", "github"])
+    sched.add_argument("agents", nargs="*")
+    sched.add_argument("--at", default="02:00", help="HH:MM (GitHub: UTC)")
+    sched.add_argument("--loop", action="store_true")
+    sched.add_argument("--write", action="store_true", help="github: write .github/workflows/vcommand-wake.yml")
     frame = sub.add_parser("frame", help="Compile a context frame to hand the task to any agent/model")
     frame.add_argument("--json", action="store_true", help="Machine-readable frame")
     frame.add_argument("--out", help="Write to this file instead of stdout")
@@ -101,7 +151,7 @@ def make_parser() -> argparse.ArgumentParser:
     hooks.add_argument("--settings", help="Hook file (default: .claude/settings.json or .codex/hooks.json)")
     hook = sub.add_parser("hook", help="Hook entry point called by the agent (reads JSON on stdin)")
     hook.add_argument("target", choices=HOOK_TARGETS)
-    hook.add_argument("event", choices=["session-start", "stop"])
+    hook.add_argument("event", choices=["session-start", "stop", "pre-tool", "pre-compact"])
     queue = sub.add_parser("queue", help="Overnight task queue: verified tasks are committed, questions wait for you")
     queue_sub = queue.add_subparsers(dest="queue_action", required=True)
     q_add = queue_sub.add_parser("add", help="Add a task")
@@ -147,6 +197,82 @@ def make_parser() -> argparse.ArgumentParser:
     demo = sub.add_parser("demo", help="Done isn't verified: scripted agents, real checks, ledger and handoff")
     demo.add_argument("--fast", action="store_true", help="No pauses (for CI and recordings)")
     return p
+
+
+def _workflow_command(args, root: Path, cfg: dict) -> int:
+    from . import workflow as w
+    if args.command == "decide":
+        agent = args.agent or os.environ.get("VCOMMAND_AGENT") or ("agent" if os.environ.get("VCOMMAND_WRAPPED")
+                                                                   else "developer")
+        print(f"V/  Decision recorded: {w.add_decision(root, args.text, why=args.why, agent=agent)[2:]}")
+        return 0
+    if args.command == "decisions":
+        items = w.read_decisions(root)
+        print("\n".join(f"- {d}" for d in items) if items else "V/  No decisions recorded (vcmd decide \"…\")")
+        return 0
+    if args.command == "todo":
+        if args.todo_action == "add":
+            item = w.add_todo(root, args.text)
+            print(f"V/  To-do {item['n']}: {item['text']}")
+        elif args.todo_action == "done":
+            item = w.complete_todo(root, args.ref)
+            print(f"V/  Done: {item['text']}")
+        else:
+            items = w.read_todos(root)
+            for i in items:
+                print(f"{i['n']:3}. [{'x' if i['done'] else ' '}] {i['text']}")
+            if not items:
+                print("V/  No to-dos")
+        return 0
+    if args.command == "handoff":
+        if args.write or args.out:
+            path = w.write_handoff(root)
+            text = path.read_text(encoding="utf-8")
+            if args.out:
+                Path(args.out).write_text(text, encoding="utf-8")
+            print(f"V/  Handoff written: {path}" + (f" and {args.out}" if args.out else ""))
+            return 0
+        print(w.render_handoff(w.build_handoff(root)), end="")
+        return 0
+    if args.command == "approve":
+        if args.id in {None, "list"}:
+            items = w.list_approvals(root) if args.all else w.pending_approvals(root)
+            if not items:
+                print("V/  No pending approvals" if not args.all else "V/  No approval requests")
+            for a in items:
+                print(f"{a['id']}  {a['status']:8} {a['rule']:12} {a.get('agent') or '-':12} {a['command'][:100]}"
+                      + (f"   (queue task {a['queue_task']})" if a.get("queue_task") else ""))
+            if items and not args.all:
+                print("V/  Approve: vcmd approve <id>   Deny: vcmd approve <id> --deny")
+            return 0
+        a = w.decide_approval(root, args.id, approve=not args.deny)
+        if a["status"] == "approved":
+            print(f"V/  Approved {a['id']} for 24 h: `{a['command'][:160]}` (exactly this command)")
+        else:
+            print(f"V/  Denied {a['id']}")
+        if a.get("queue_task"):
+            print(f"V/  Queue task {a['queue_task']} is back in the queue with your decision")
+        return 0
+    if args.command == "guard":
+        command = " ".join(tokens(args.shell))
+        if not command:
+            raise ValueError("Use: vcmd guard -- <shell command>")
+        rule = w.classify_command(cfg, command)
+        if rule is None:
+            print("V/  allowed: no guardrail matches")
+        else:
+            print(f"V/  needs approval: {rule}" + (" (already approved)" if w.is_approved(root, command) else ""))
+        return 0
+    roles = cfg.get("roles") or {}
+    if args.command == "loop":
+        plan = args.plan if args.plan is not None else roles.get("plan")
+        review = args.review if args.review is not None else roles.get("review")
+        return w.run_loop(root, plan=None if plan == "none" else plan, build=args.build or w._as_list(roles.get("build")),
+                          review=None if review == "none" else review,
+                          rounds=args.rounds or int(roles.get("rounds", 2)), attempts=args.attempts,
+                          timeout=args.timeout, check_timeout=args.check_timeout, budget_usd=args.budget)
+    return w.run_wake(root, args.agents, use_loop=args.loop, max_tasks=args.max_tasks, until=args.until,
+                      budget_usd=args.budget, timeout=args.timeout, jobs=args.jobs)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -271,6 +397,22 @@ def main(argv: list[str] | None = None) -> int:
                 for x in ss.list_secrets():
                     print(f"{x['name']:24} {x['hint']:14} {x['label']}")
             return 0
+        if args.command == "schedule":
+            from .workflow import schedule_template
+            agents = args.agents or ["claude"]
+            text = schedule_template(args.kind, agents=agents, at=args.at, use_loop=args.loop)
+            if args.write:
+                if args.kind != "github":
+                    raise ValueError("--write is only for github; install cron/systemd entries yourself")
+                dest = root / ".github" / "workflows" / "vcommand-wake.yml"
+                if dest.exists():
+                    raise ValueError(f"{dest} exists; remove it first or print without --write")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(text, encoding="utf-8")
+                print(f"V/  Wrote {dest}. Add repository secrets (ANTHROPIC_API_KEY / OPENAI_API_KEY) and commit it.")
+            else:
+                print(text, end="")
+            return 0
         if args.command == "hooks":
             settings = Path(args.settings) if args.settings else None
             name = {"claude": "Claude Code", "codex": "Codex"}[args.target]
@@ -355,8 +497,17 @@ def main(argv: list[str] | None = None) -> int:
                               budget_usd=args.budget)
         if args.command == "task":
             if args.task_action == "start":
-                t = start_task(root, args.goal)
+                from .workflow import normalize_brief
+                t = start_task(root, args.goal, normalize_brief(args.scope, args.constraint, args.done,
+                                                                args.leave_behind))
                 print(f"V/  Task {t['id']} started: {t['goal']}")
+                if not t.get("brief"):
+                    print("V/  Tip: add the operating brief: vcmd task brief --scope … --constraint … --done …")
+            elif args.task_action == "brief":
+                t = set_brief(root, scope=args.scope, constraints=args.constraint, done=args.done,
+                              leave_behind=args.leave_behind, clear_constraints=args.clear_constraints)
+                from .workflow import brief_view, render_brief
+                print("\n".join(render_brief(brief_view(t, [" ".join(c) for c in cfg["checks"]]))).rstrip())
             elif args.task_action == "done":
                 t = complete_step(root, args.step)
                 print(f"V/  Step recorded ({len(t['completed_steps'])} done)")
@@ -386,6 +537,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  next: {t.get('next_step') or 'not set'}")
                     if t.get("focus"):
                         print(f"  focus: {', '.join(t['focus'])}")
+                    from .workflow import brief_view, render_brief
+                    print("\n".join(render_brief(brief_view(t, [" ".join(c) for c in cfg["checks"]]))).rstrip())
             return 0
         if args.command == "ledger":
             if args.ledger_action == "add":
@@ -400,6 +553,8 @@ def main(argv: list[str] | None = None) -> int:
                     who = f" [{e['agent']}]" if e.get("agent") else ""
                     print(f"{e['id']}  {e['created_at_utc']}{who}\n  tried:   {e['tried']}\n  failed:  {e['failure']}")
             return 0
+        if args.command in {"decide", "decisions", "todo", "handoff", "approve", "guard", "loop", "wake"}:
+            return _workflow_command(args, root, cfg)
         if args.command == "frame":
             data = build_frame(root)
             text = json.dumps(data, indent=2, ensure_ascii=False) + "\n" if args.json else render_frame(data)
