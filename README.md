@@ -28,7 +28,7 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Agent adapters:** `vcmd hooks install claude` (or `codex`) injects the frame into every agent session (start, resume, `/clear`, compaction) and blocks the agent from finishing while your checks fail. `vcmd agent codex claude` runs agents non-interactively and hands the task to the next one when gates fail; `--isolate` gives every attempt its own git worktree and applies only verified changes.
 - **Code slice:** `vcmd task focus src/auth.ts:AuthService.login` puts the focused code and its blast radius (tests, importers, callers) in the frame; **pre-flight warnings** come from counts in the ledger.
 - **Failover, cost, budget:** agents whose provider fails are skipped for a cooldown; Claude Code's reported cost is recorded per attempt; `--budget` stops spending on a task.
-- **Benchmark:** `vcmd bench` compares `agent:plain` vs `agent:frame` on a task suite (see [benchmarks/](benchmarks/README.md); first smoke result: no benefit on small tasks, +39% cost).
+- **Benchmark:** `vcmd bench` compares `agent:plain` vs `agent:frame` on a task suite (see [benchmarks/](benchmarks/README.md)). Measured on 200 TypeScript tasks with Claude Haiku: no pass-rate benefit from the frame so far (200/200 both ways, also after a failed first attempt) at +5–7% cost — published as measured.
 - **Local backup and overnight queue:** `vcmd hw` recommends an Ollama model that fits your machine and registers it as a fallback agent; `vcmd queue` runs tasks overnight, commits only verified work and keeps questions for you.
 - No API dependency, no background daemon, no telemetry, no cloud account.
 - Python 3.10+, Windows/macOS/Linux intended; tested in CI matrix.

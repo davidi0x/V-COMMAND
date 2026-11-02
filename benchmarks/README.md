@@ -43,6 +43,8 @@ sample use Node ≥ 22.6 type stripping, so no build step is needed.
   it. A smoke suite for the harness.
 - `results/` — recorded runs with their interpretation. The first smoke run found no benefit from the
   frame on tasks this small, and a cost/latency overhead.
-- **Not done yet:** the ~200-task TypeScript suite from the roadmap, and handoff arms (attempt →
-  failure → second agent with vs. without the frame). Tasks for that suite should come from real
-  bug-fix commits with their tests, so that "passing" means something.
+- `ts200/` — 200 generated TypeScript tasks (20 bug families × 10 domains), each verified in CI to fail
+  unfixed and pass with its reference fix.
+- Results so far (Claude Haiku): single attempt 200/200 with and without the frame; handoff after a
+  failed attempt 200/200 rescued both ways; the frame cost +5–7%. A harder suite (misleading first
+  attempts, larger repositories) is the next step to test the frame's claimed benefit.

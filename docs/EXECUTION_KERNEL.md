@@ -40,11 +40,20 @@ risk); a failure is described by which gate failed and the human/agent-supplied 
 
 ### What was measured so far
 
-One live smoke run (5 small tasks, Claude Haiku, 10 runs, $0.0525 — [results](../benchmarks/results/2026-11-01-sample-haiku-smoke.md)):
-both arms passed 5/5; the frame arm cost about 39% more and was ~4 s slower per task. On small tasks
-the frame is overhead. Whether it pays off on harder tasks and after a failed attempt is still open.
+All runs with Claude Haiku via Claude Code, provider-reported costs, results in `benchmarks/results/`:
 
-### Completed after the first review
+| Run | Plain prompt | Context frame | Frame cost |
+|---|---|---|---|
+| sample, 5 tasks, single attempt | 5/5 | 5/5 | +39% |
+| ts200, 200 tasks, single attempt | 200/200 | 200/200 | +4.9% |
+| ts200, handoff after a failed attempt | 200/200 rescued | 200/200 rescued | +6.5% |
+
+**So far the frame has shown no pass-rate benefit and a small cost.** These tasks are solvable from the
+goal alone, and failed first attempts left no misleading edits behind. The frame's claimed value —
+continuity after misleading failures, and finding the right code in large repositories — remains a
+hypothesis until a harder suite shows it. Total spend on these measurements: about $6.
+
+## Completed after the first review
 
 | Concept | Implementation |
 |---|---|
