@@ -317,12 +317,16 @@ def start_background(root: Path, port: int = 0) -> dict[str, Any]:
         kwargs["start_new_session"] = True
     proc = subprocess.Popen([sys.executable, "-m", "vcommand", "dashboard", "--port", str(port), "--no-open"], **kwargs)
     info = {"pid": proc.pid, "port": port, "url": f"http://127.0.0.1:{port}/?token={token}"}
-    for _ in range(50):
-        if _alive(info):
-            break
+    # a cold interpreter can take several seconds (seen on macOS CI runners): wait up to 20 s,
+    # fail fast if the process dies, and never leave an orphan behind on failure
+    deadline = time.monotonic() + 20
+    while not _alive(info):
+        if proc.poll() is not None:
+            raise OSError(f"dashboard exited during start-up (code {proc.returncode})")
+        if time.monotonic() > deadline:
+            proc.kill()
+            raise OSError("dashboard did not start within 20 s")
         time.sleep(0.1)
-    else:
-        raise OSError("dashboard did not start")
     path = _state_path(root)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds the token
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
