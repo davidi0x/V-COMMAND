@@ -318,7 +318,8 @@ def agent_env(root: Path, extra: dict[str, str] | None = None, spec: dict[str, A
 # a child `claude -p` inherited CLAUDE_CODE_SESSION_ID, reused the parent's session id, and its hooks
 # wrote into the parent's session environment. Every launched agent gets its own session.
 PARENT_SESSION_VARS = {"CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_REMOTE_SESSION_ID", "CLAUDE_ENV_FILE",
-                       "VCOMMAND_SESSION"}
+                       "CLAUDE_CODE_CHILD_SESSION", "VCOMMAND_SESSION"}  # CHILD_SESSION: found live, switches off
+                                                                        # transcript saving in the child
 
 STOPPED_FOR_HUMAN = 3  # run_agents exit code: an agent asked for a human decision
 

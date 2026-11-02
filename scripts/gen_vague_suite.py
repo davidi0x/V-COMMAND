@@ -449,13 +449,13 @@ def build(out: Path = OUT) -> None:
     for t in TASKS:
         d = out / t["id"]
         d.mkdir(parents=True)
-        (d / "errors.py").write_text(ERRORS)
-        (d / f"{t['module']}.py").write_text(t["stub"])
-        (d / f"test_{t['module']}.py").write_text(t["test"])
-        (d / "README.md").write_text(f"# {t['module']}\n\nConventions of this package:\n\n{t['readme']}")
+        (d / "errors.py").write_text(ERRORS, encoding="utf-8")
+        (d / f"{t['module']}.py").write_text(t["stub"], encoding="utf-8")
+        (d / f"test_{t['module']}.py").write_text(t["test"], encoding="utf-8")
+        (d / "README.md").write_text(f"# {t['module']}\n\nConventions of this package:\n\n{t['readme']}", encoding="utf-8")
         sol = out / "_solutions" / t["id"]
         sol.mkdir(parents=True)
-        (sol / f"{t['module']}.py").write_text(t["solution"])
+        (sol / f"{t['module']}.py").write_text(t["solution"], encoding="utf-8")
         tasks.append({"id": t["id"], "dir": t["id"], "goal": t["goal"], "focus": [],
                       "gates": [["python", "-B", f"test_{t['module']}.py"]]})
     (out / "suite.json").write_text(json.dumps({
@@ -463,7 +463,7 @@ def build(out: Path = OUT) -> None:
         "description": ("Ten tasks with a one-sentence goal; the requirements the hidden tests check live only in "
                         "each repository's README.md. Measures whether reading and applying the repository's own "
                         "conventions (what a good brief makes explicit) changes the pass rate."),
-        "tasks": tasks}, indent=2) + "\n")
+        "tasks": tasks}, indent=2) + "\n", encoding="utf-8")
     (out / "README.md").write_text(textwrap.dedent("""\
         # vague10
 
@@ -472,7 +472,7 @@ def build(out: Path = OUT) -> None:
 
         Regenerate: `python scripts/gen_vague_suite.py`. `_solutions/<id>/` holds the reference solutions
         (CI checks that each task fails without and passes with it).
-        """))
+        """), encoding="utf-8")
 
 
 if __name__ == "__main__":

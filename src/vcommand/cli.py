@@ -300,6 +300,9 @@ def make_parser() -> argparse.ArgumentParser:
     dash.add_argument("--no-open", action="store_true", help="Do not open a browser")
     dash.add_argument("--background", action="store_true", help="Run detached and print the URL (used by /dashboard)")
     dash.add_argument("--stop", action="store_true", help="Stop a background dashboard")
+    wsp = sub.add_parser("workspace", help="Local workspace: real terminals (Claude Code, Codex, shell), files, editor, git changes")
+    wsp.add_argument("--port", type=int, default=0, help="Port on 127.0.0.1 (default: random free port)")
+    wsp.add_argument("--no-open", action="store_true", help="Do not open a browser")
     dash.add_argument("--install-command", action="store_true", help="Add /dashboard to Claude Code (.claude/commands)")
     sec = sub.add_parser("secret", help="Store API keys as secrets (OS keychain / DPAPI / secret-tool / 0600 file)")
     sec_sub = sec.add_subparsers(dest="secret_action", required=True)
@@ -612,7 +615,16 @@ def _parallel_command(args, root: Path, cfg: dict) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    trailing: list[str] | None = None
+    if argv[:2] == ["connect", "agent"] and "--" in argv:
+        # argparse (3.10 and 3.11) swallows what follows `--` when options are mixed with positionals:
+        # split the agent command off by hand.
+        i = argv.index("--")
+        argv, trailing = argv[:i], argv[i + 1:]
     args = make_parser().parse_args(argv)
+    if trailing is not None:
+        args.argv = trailing
     root = project_root()
     try:
         if args.command == "init":
@@ -676,6 +688,22 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("vcmd ask works inside a queue run (VCOMMAND_QUEUE_TASK is not set)")
             q.ask(q.current_queue_root(root), task_id, args.question, args.option)
             print(f"V/  Task {task_id} frozen until the developer answers. Stop working on it now.")
+            return 0
+        if args.command == "workspace":
+            from . import dashboard as d
+            server, url = d.make_server(root, args.port, os.environ.get("VCOMMAND_DASHBOARD_TOKEN"), workspace=True)
+            print(f"V/  Workspace: {url}")
+            print("V/  Local only (127.0.0.1). It contains a terminal: anyone with this link can run commands as you,")
+            print("V/  so keep the link private. Ctrl+C stops the server and every terminal in it.")
+            if not args.no_open:
+                import webbrowser
+                webbrowser.open(url)
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                server.server_close()
             return 0
         if args.command == "dashboard":
             from . import dashboard as d

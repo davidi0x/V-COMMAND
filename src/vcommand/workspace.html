@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V/COMMAND Workspace</title>
+<link rel="stylesheet" href="/assets/xterm.css">
+<style>
+@font-face { font-family: "Archivo"; src: url("/assets/archivo-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+:root {
+  color-scheme: light;
+  --page: #ecedf4; --card: #ffffff; --card-2: #f4f4f9; --line: #e3e3ec;
+  --ink: #000; --ink-2: #3f3e4a; --ink-3: #6d6c78;
+  --violet: #8e7bf6; --yellow: #f6e37c; --coral: #f8896b; --lime: #d5f48a; --violet-soft: #e4dffd;
+  --good: #22b14c; --bad: #e5484d; --warn: #f2a516;
+  --term-bg: #0e0e14; --term-ink: #ececf4;
+  --add-bg: #e3f8e8; --del-bg: #ffe1df; --hunk-bg: #ece8ff;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) { color-scheme: dark; --page: #121218; --card: #1d1d26; --card-2: #262631; --line: #2f2f3b;
+    --ink: #fff; --ink-2: #c9c8d6; --ink-3: #9a99a8; --violet-soft: #2c2650; --add-bg: #17301f; --del-bg: #3a1c1d; --hunk-bg: #2a2548; }
+}
+:root[data-theme="dark"] { color-scheme: dark; --page: #121218; --card: #1d1d26; --card-2: #262631; --line: #2f2f3b;
+  --ink: #fff; --ink-2: #c9c8d6; --ink-3: #9a99a8; --violet-soft: #2c2650; --add-bg: #17301f; --del-bg: #3a1c1d; --hunk-bg: #2a2548; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 450 14px/1.4 "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased; display: flex; flex-direction: column; overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; }
+:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+
+/* top bar */
+.top { display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex: none; }
+.logo { font-weight: 800; font-size: 20px; letter-spacing: -.02em; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; background: var(--card); font-weight: 600; font-size: 13px; }
+.pill.branch::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.spacer { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: #000; color: #fff; font-weight: 700; font-size: 13px;
+  transition: transform .18s var(--ease), opacity .18s; }
+:root[data-theme="dark"] .btn { background: #fff; color: #000; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .btn { background: #fff; color: #000; } }
+.btn:active { transform: scale(.97); }
+.btn.ghost { background: var(--card); color: var(--ink); }
+.btn.small { padding: 5px 11px; font-size: 12px; }
+.btn[disabled] { opacity: .45; cursor: default; }
+a.btn { text-decoration: none; }
+.menu { position: relative; }
+.menu-list { position: absolute; right: 0; top: calc(100% + 6px); background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 6px; min-width: 240px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.18); z-index: 20; display: none; }
+.menu.open .menu-list { display: block; animation: pop .16s var(--ease); }
+@keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.menu-list button { width: 100%; text-align: left; padding: 9px 12px; border-radius: 10px; display: flex; justify-content: space-between; gap: 12px; }
+.menu-list button:hover:not([disabled]) { background: var(--card-2); }
+.menu-list button[disabled] { opacity: .5; cursor: default; }
+.menu-list small { color: var(--ink-3); }
+
+/* layout */
+.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 270px 1fr; gap: 10px; padding: 0 10px 10px; }
+.side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.card { background: var(--card); border-radius: 22px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.card h3 { margin: 0; padding: 14px 16px 8px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); display: flex; justify-content: space-between; align-items: center; }
+.explorer { flex: 3; } .changes { flex: 2; }
+.filter { margin: 0 12px 8px; padding: 7px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card-2); }
+.scroll { overflow: auto; min-height: 0; flex: 1; padding: 0 6px 10px; }
+.row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+.row:hover { background: var(--card-2); }
+.row.active { background: var(--violet-soft); }
+.row .caret { width: 12px; color: var(--ink-3); font-size: 10px; transition: transform .15s; display: inline-block; }
+.row .caret.open { transform: rotate(90deg); }
+.row .nm { overflow: hidden; text-overflow: ellipsis; }
+.dirty { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+.tag { font-size: 11px; font-weight: 800; width: 18px; height: 18px; border-radius: 6px; display: inline-grid; place-items: center; flex: none; color: #000; }
+.tag.modified { background: var(--yellow); } .tag.untracked, .tag.added { background: var(--lime); } .tag.deleted { background: var(--coral); } .tag.renamed { background: var(--violet); }
+.empty { padding: 14px 16px; color: var(--ink-3); font-size: 13px; }
+
+.center { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.editor { flex: 1 1 55%; min-height: 120px; }
+.tabs { display: flex; gap: 4px; padding: 8px 10px 0; overflow-x: auto; flex: none; scrollbar-width: none; }
+.tab { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 12px 12px 0 0; background: transparent; font-weight: 600; font-size: 13px; color: var(--ink-3); white-space: nowrap; }
+.tab.active { background: var(--card-2); color: var(--ink); }
+.tab .x { opacity: .5; padding: 0 2px; } .tab .x:hover { opacity: 1; }
+.edwrap { flex: 1; min-height: 0; display: flex; background: var(--card-2); margin: 0 10px; border-radius: 14px; overflow: hidden; position: relative; }
+.gutter { padding: 12px 8px 12px 12px; text-align: right; color: var(--ink-3); user-select: none; overflow: hidden; font-size: 13px; line-height: 20px; white-space: pre; min-width: 46px; }
+#ed { flex: 1; resize: none; border: 0; outline: 0; background: transparent; padding: 12px 12px 12px 6px; font-size: 13px; line-height: 20px; tab-size: 4; white-space: pre; overflow: auto; }
+.diffview { flex: 1; overflow: auto; padding: 8px 0; font-size: 12.5px; line-height: 19px; }
+.diffview div { padding: 0 14px; white-space: pre; }
+.diffview .a { background: var(--add-bg); } .diffview .d { background: var(--del-bg); } .diffview .h { background: var(--hunk-bg); color: var(--ink-2); }
+.status { display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-size: 12px; color: var(--ink-3); flex: none; flex-wrap: wrap; }
+.banner { background: var(--yellow); color: #000; padding: 8px 14px; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.welcome { margin: auto; text-align: center; color: var(--ink-3); padding: 20px; max-width: 420px; }
+.welcome b { color: var(--ink); font-size: 22px; display: block; margin-bottom: 8px; letter-spacing: -.01em; }
+
+.splitter { height: 10px; cursor: row-resize; flex: none; display: grid; place-items: center; }
+.splitter::after { content: ""; width: 54px; height: 4px; border-radius: 4px; background: var(--line); }
+.term { flex: 1 1 45%; min-height: 140px; background: var(--term-bg); color: var(--term-ink); }
+.term .tabs { padding-top: 8px; }
+.term .tab { color: #9a99a8; } .term .tab.active { background: #1c1c26; color: #fff; }
+.term .tab .st { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+.term .tab.dead .st { background: #777; }
+.runbar { display: flex; gap: 8px; padding: 8px 12px; flex: none; align-items: center; flex-wrap: wrap; border-top: 1px solid #23232e; }
+.runbar select, .runbar input[type=text] { background: #1c1c26; color: #fff; border: 1px solid #2c2c3a; border-radius: 10px; padding: 6px 10px; }
+.runbar input[type=text] { flex: 1; min-width: 180px; }
+.runbar label { font-size: 12px; color: #9a99a8; display: inline-flex; gap: 6px; align-items: center; }
+.runbar .btn { background: var(--violet); color: #000; }
+.termbox { flex: 1; min-height: 0; position: relative; padding: 4px 8px 6px; }
+.termpane { position: absolute; inset: 4px 8px 6px; display: none; }
+.termpane.active { display: block; }
+.termpane .xterm { height: 100%; }
+.termnote { padding: 24px; color: #9a99a8; text-align: center; margin: auto; }
+.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: #000; color: #fff; padding: 10px 18px; border-radius: 999px; font-weight: 600; z-index: 50; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.toast.show { opacity: 1; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; grid-template-rows: 220px 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="logo">V/COMMAND</span>
+  <span class="pill" id="project">…</span>
+  <span class="pill branch" id="branch" hidden></span>
+  <span class="spacer"></span>
+  <a class="btn ghost small" id="to-dash">Dashboard</a>
+  <a class="btn ghost small" id="to-mission">Mission</a>
+  <div class="menu" id="newmenu">
+    <button class="btn small" id="newbtn" aria-haspopup="true">New terminal ▾</button>
+    <div class="menu-list" id="newlist" role="menu"></div>
+  </div>
+  <button class="btn ghost small" id="theme" title="Toggle light / dark" aria-label="Toggle light or dark theme"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+</header>
+<main class="grid">
+  <aside class="side">
+    <section class="card explorer"><h3>Explorer <span id="filecount" class="mono"></span></h3>
+      <input class="filter" id="filter" placeholder="Filter files" aria-label="Filter files">
+      <div class="scroll" id="tree"></div></section>
+    <section class="card changes"><h3>Changes <span id="chgcount" class="mono"></span></h3>
+      <div class="scroll" id="changes"></div></section>
+  </aside>
+  <div class="center">
+    <section class="card editor">
+      <div class="tabs" id="edtabs"></div>
+      <div id="banner" class="banner" hidden></div>
+      <div class="edwrap" id="edwrap">
+        <div class="welcome" id="welcome"><b>Work here.</b>Open a file from the explorer, or start Claude Code, Codex or a shell in the terminal below. Agents edit the same files you see; changes appear on the left as they happen.</div>
+        <div class="gutter mono" id="gutter" hidden></div>
+        <textarea id="ed" class="mono" spellcheck="false" hidden aria-label="Editor"></textarea>
+        <div class="diffview mono" id="diffview" hidden></div>
+      </div>
+      <div class="status" id="status"><span id="stpath"></span><span class="spacer"></span><button class="btn small" id="save" hidden>Save · Ctrl+S</button><button class="btn ghost small" id="revert" hidden>Revert file</button></div>
+    </section>
+    <div class="splitter" id="split" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+    <section class="card term">
+      <div class="tabs" id="termtabs"></div>
+      <div class="termbox" id="termbox"><div class="termnote" id="termnote">No terminal yet. <b>New terminal ▾</b> → Claude Code, Codex, OpenCode or Shell.</div></div>
+      <div class="runbar"><label>Run with checks</label>
+        <select id="run-agent" aria-label="Agent"></select>
+        <input type="text" id="run-text" placeholder="Describe the task. The agent runs in a worktree and your checks decide if it is done." maxlength="2000">
+        <label><input type="checkbox" id="run-iso" checked> isolate</label>
+        <button class="btn small" id="run-go">Run</button></div>
+    </section>
+  </div>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="/assets/xterm.js"></script>
+<script src="/assets/addon-fit.js"></script>
+<script>
+"use strict";
+const TOKEN = new URLSearchParams(location.search).get("token") || "";
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const state = { info: null, files: [], expanded: new Set(), tabs: [], active: null, changes: [], terms: new Map(), activeTerm: null, filter: "" };
+let toastTimer;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 3200); }
+async function api(path, body) {
+  const opts = { headers: { "X-VCMD-Token": TOKEN } };
+  if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  let data = null; try { data = await r.json(); } catch (_) {}
+  if (!r.ok) throw new Error((data && data.error) || `HTTP ${r.status}`);
+  return data;
+}
+const dark = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+$("#theme").onclick = () => { document.documentElement.dataset.theme = dark() ? "light" : "dark"; try { localStorage.setItem("vcmd-theme", document.documentElement.dataset.theme); } catch (_) {} };
+try { const t = localStorage.getItem("vcmd-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+$("#to-dash").href = `/?token=${encodeURIComponent(TOKEN)}`;
+$("#to-mission").href = `/?token=${encodeURIComponent(TOKEN)}#mission`;
+
+/* ---------- explorer ---------- */
+function buildTree(paths) {
+  const root = { dirs: {}, files: [] };
+  for (const p of paths) {
+    const parts = p.split("/"); let n = root;
+    for (let i = 0; i < parts.length - 1; i++) n = (n.dirs[parts[i]] ||= { dirs: {}, files: [] });
+    n.files.push({ name: parts[parts.length - 1], path: p });
+  }
+  return root;
+}
+function renderTree() {
+  const q = state.filter.trim().toLowerCase();
+  const dirtyPaths = new Set(state.tabs.filter((t) => t.dirty).map((t) => t.path));
+  const st = Object.fromEntries(state.changes.map((c) => [c.path, c.label]));
+  const row = (f, depth) => `<div class="row ${state.active === f.path ? "active" : ""}" style="padding-left:${8 + depth * 14}px" data-open="${esc(f.path)}" title="${esc(f.path)}"><span class="caret"></span><span class="nm">${esc(f.name)}</span>${dirtyPaths.has(f.path) ? '<span class="dirty"></span>' : ""}${st[f.path] ? `<span class="tag ${st[f.path]}" style="margin-left:auto">${st[f.path][0] === "u" ? "U" : st[f.path][0].toUpperCase()}</span>` : ""}</div>`;
+  let html = "";
+  if (q) {
+    const hits = state.files.filter((p) => p.toLowerCase().includes(q)).slice(0, 300);
+    html = hits.map((p) => row({ name: p, path: p }, 0)).join("") || '<div class="empty">No match.</div>';
+  } else {
+    const walk = (node, prefix, depth) => {
+      let out = "";
+      for (const d of Object.keys(node.dirs).sort()) {
+        const key = prefix + d + "/", open = state.expanded.has(key);
+        out += `<div class="row" style="padding-left:${8 + depth * 14}px" data-dir="${esc(key)}"><span class="caret ${open ? "open" : ""}">▶</span><span class="nm"><b>${esc(d)}</b></span></div>`;
+        if (open) out += walk(node.dirs[d], key, depth + 1);
+      }
+      for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name))) out += row(f, depth);
+      return out;
+    };
+    html = walk(buildTree(state.files), "", 0) || '<div class="empty">No files yet.</div>';
+  }
+  $("#tree").innerHTML = html;
+  $("#filecount").textContent = state.files.length;
+}
+$("#tree").addEventListener("click", (e) => {
+  const d = e.target.closest("[data-dir]"); if (d) { const k = d.dataset.dir; state.expanded.has(k) ? state.expanded.delete(k) : state.expanded.add(k); renderTree(); return; }
+  const f = e.target.closest("[data-open]"); if (f) openFile(f.dataset.open);
+});
+$("#filter").addEventListener("input", (e) => { state.filter = e.target.value; renderTree(); });
+async function loadTree() { try { const t = await api("/api/ws/tree"); state.files = t.files; renderTree(); } catch (e) { toast(e.message); } }
+
+/* ---------- changes ---------- */
+function renderChanges() {
+  $("#chgcount").textContent = state.changes.length || "";
+  $("#changes").innerHTML = state.changes.map((c) => `<div class="row ${state.active === "diff:" + c.path ? "active" : ""}" data-diff="${esc(c.path)}" title="${esc(c.path)}"><span class="tag ${c.label}">${c.label === "untracked" ? "U" : c.label[0].toUpperCase()}</span><span class="nm">${esc(c.path)}</span></div>`).join("")
+    || '<div class="empty">Clean. Edits by you or an agent show up here.</div>';
+}
+$("#changes").addEventListener("click", (e) => { const r = e.target.closest("[data-diff]"); if (r) openDiff(r.dataset.diff); });
+async function loadStatus() {
+  try {
+    const s = await api("/api/ws/status");
+    const before = JSON.stringify(state.changes);
+    state.changes = s.changes;
+    if (JSON.stringify(state.changes) !== before) { renderChanges(); renderTree(); const known = new Set(state.files); if (state.changes.some((c) => c.label !== "deleted" && !known.has(c.path))) loadTree(); }
+    if (s.branch) { $("#branch").hidden = false; $("#branch").textContent = s.branch; }
+  } catch (_) {}
+}
+
+/* ---------- editor ---------- */
+const ed = $("#ed");
+const idOf = (t) => (t.kind === "diff" ? "diff:" + t.path : t.path);
+function curTab() { return state.tabs.find((t) => idOf(t) === state.active); }
+function renderTabs() {
+  $("#edtabs").innerHTML = state.tabs.map((t) => { const id = t.kind === "diff" ? "diff:" + t.path : t.path; const name = t.path.split("/").pop();
+    return `<button class="tab ${state.active === id ? "active" : ""}" data-tab="${esc(id)}" title="${esc(t.path)}">${t.kind === "diff" ? "± " : ""}${esc(name)}${t.dirty ? ' <span class="dirty"></span>' : ""}<span class="x" data-close="${esc(id)}" aria-label="Close">×</span></button>`; }).join("");
+}
+$("#edtabs").addEventListener("click", (e) => {
+  const c = e.target.closest("[data-close]"); if (c) { e.stopPropagation(); closeTab(c.dataset.close); return; }
+  const t = e.target.closest("[data-tab]"); if (t) activate(t.dataset.tab);
+});
+function closeTab(id) {
+  const t = state.tabs.find((x) => (x.kind === "diff" ? "diff:" + x.path : x.path) === id);
+  if (t && t.dirty && !confirm(`${t.path} has unsaved changes. Close anyway?`)) return;
+  state.tabs = state.tabs.filter((x) => x !== t);
+  if (state.active === id) state.active = state.tabs.length ? (state.tabs[state.tabs.length - 1].kind === "diff" ? "diff:" : "") + state.tabs[state.tabs.length - 1].path : null;
+  paintEditor();
+}
+function activate(id) { state.active = id; paintEditor(); }
+function updateGutter() {
+  const n = ed.value.split("\n").length; const g = $("#gutter");
+  if (g.dataset.n !== String(n)) { g.dataset.n = n; g.textContent = Array.from({ length: n }, (_, i) => i + 1).join("\n"); }
+  g.scrollTop = ed.scrollTop;
+}
+function paintEditor() {
+  renderTabs(); renderTree(); renderChanges();
+  const t = curTab(); const banner = $("#banner");
+  $("#welcome").hidden = !!t; ed.hidden = !t || t.kind === "diff"; $("#gutter").hidden = ed.hidden; $("#diffview").hidden = !t || t.kind !== "diff";
+  $("#save").hidden = !t || t.kind === "diff"; $("#revert").hidden = !t || (t.kind !== "diff" && !state.changes.some((c) => c.path === t.path));
+  banner.hidden = !t || !t.conflict;
+  if (t && t.conflict) banner.innerHTML = `Changed on disk since you opened it (an agent or another tool wrote it). <button class="btn small" id="b-reload">Reload (discard mine)</button> <button class="btn ghost small" id="b-over">Overwrite</button>`;
+  $("#stpath").textContent = t ? t.path + (t.kind === "diff" ? "  ·  diff against HEAD" : t.dirty ? "  ·  unsaved" : "") : "";
+  if (!t) return;
+  if (t.kind === "diff") {
+    $("#diffview").innerHTML = (t.diff || "").split("\n").map((l) => `<div class="${l.startsWith("+") && !l.startsWith("+++") ? "a" : l.startsWith("-") && !l.startsWith("---") ? "d" : l.startsWith("@@") ? "h" : ""}">${esc(l) || " "}</div>`).join("") || '<div style="padding:14px">No differences.</div>';
+  } else { if (ed.value !== t.content) ed.value = t.content; updateGutter(); }
+}
+ed.addEventListener("input", () => { const t = curTab(); if (!t || t.kind === "diff") return; t.content = ed.value; const was = t.dirty; t.dirty = t.content !== t.orig; updateGutter(); if (was !== t.dirty) { renderTabs(); $("#stpath").textContent = t.path + (t.dirty ? "  ·  unsaved" : ""); } });
+ed.addEventListener("scroll", () => { $("#gutter").scrollTop = ed.scrollTop; });
+ed.addEventListener("keydown", (e) => {
+  if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); const s = ed.selectionStart; ed.setRangeText("    ", s, ed.selectionEnd, "end"); ed.dispatchEvent(new Event("input")); }
+});
+document.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); } });
+async function openFile(path) {
+  const ex = state.tabs.find((t) => t.kind !== "diff" && t.path === path);
+  if (ex) { activate(path); return; }
+  try { const f = await api("/api/ws/file?path=" + encodeURIComponent(path));
+    state.tabs.push({ kind: "file", path, content: f.content, orig: f.content, mtime: f.mtime_ns, dirty: false }); activate(path);
+  } catch (e) { toast(e.message); }
+}
+async function openDiff(path) {
+  try { const d = await api("/api/ws/diff?path=" + encodeURIComponent(path)); const id = "diff:" + path;
+    let t = state.tabs.find((x) => x.kind === "diff" && x.path === path);
+    if (!t) { t = { kind: "diff", path }; state.tabs.push(t); } t.diff = d.diff; activate(id);
+  } catch (e) { toast(e.message); }
+}
+async function save(overwrite = false) {
+  const t = curTab(); if (!t || t.kind === "diff" || (!t.dirty && !overwrite)) return;
+  try { const r = await api("/api/ws/save", { path: t.path, content: t.content, base_mtime_ns: overwrite ? null : t.mtime });
+    t.mtime = r.mtime_ns; t.orig = t.content; t.dirty = false; t.conflict = false; paintEditor(); loadStatus(); toast("Saved " + t.path);
+  } catch (e) { if (/changed on disk/.test(e.message)) { t.conflict = true; paintEditor(); } else toast(e.message); }
+}
+$("#save").onclick = () => save();
+document.addEventListener("click", async (e) => {
+  const t = curTab();
+  if (e.target.id === "b-reload" && t) { const f = await api("/api/ws/file?path=" + encodeURIComponent(t.path)); Object.assign(t, { content: f.content, orig: f.content, mtime: f.mtime_ns, dirty: false, conflict: false }); paintEditor(); }
+  if (e.target.id === "b-over" && t) save(true);
+});
+$("#revert").onclick = async () => {
+  const t = curTab(); if (!t) return;
+  if (!confirm(`Discard all changes to ${t.path}? This cannot be undone.`)) return;
+  try { await api("/api/ws/revert", { path: t.path }); toast("Reverted " + t.path);
+    state.tabs = state.tabs.filter((x) => !(x.kind === "diff" && x.path === t.path)); if (t.kind !== "diff") { const f = await api("/api/ws/file?path=" + encodeURIComponent(t.path)).catch(() => null); if (f) Object.assign(t, { content: f.content, orig: f.content, mtime: f.mtime_ns, dirty: false }); else state.tabs = state.tabs.filter((x) => x !== t); }
+    state.active = state.tabs.length ? (state.tabs[0].kind === "diff" ? "diff:" : "") + state.tabs[0].path : null; await loadStatus(); await loadTree(); paintEditor();
+  } catch (e) { toast(e.message); }
+};
+// pick up what agents write: refresh open, unmodified file tabs and open diffs
+async function refreshOpen() {
+  for (const t of state.tabs) {
+    try {
+      if (t.kind === "diff") { const d = await api("/api/ws/diff?path=" + encodeURIComponent(t.path)); if (d.diff !== t.diff) { t.diff = d.diff; if (state.active === "diff:" + t.path) paintEditor(); } }
+      else if (!t.dirty) { const f = await api("/api/ws/file?path=" + encodeURIComponent(t.path)); if (f.mtime_ns !== t.mtime) { Object.assign(t, { content: f.content, orig: f.content, mtime: f.mtime_ns }); if (state.active === t.path) paintEditor(); } }
+    } catch (_) {}
+  }
+}
+
+/* ---------- terminals ---------- */
+const termTheme = () => dark() ? { background: "#0e0e14", foreground: "#ececf4", cursor: "#c8b8ff", selectionBackground: "#3a3360" } : { background: "#0e0e14", foreground: "#ececf4", cursor: "#c8b8ff", selectionBackground: "#3a3360" };
+function bytes(b64) { const s = atob(b64); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+function addTerm(info) {
+  if (state.terms.has(info.id)) return state.terms.get(info.id);
+  const pane = document.createElement("div"); pane.className = "termpane"; pane.id = "pane-" + info.id; $("#termbox").appendChild(pane);
+  const xt = new Terminal({ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace', fontSize: 13, cursorBlink: true, scrollback: 5000, theme: termTheme(), allowProposedApi: true });
+  const fit = new FitAddon.FitAddon(); xt.loadAddon(fit); xt.open(pane);
+  const t = { info, xt, fit, pane, next: 0, queue: Promise.resolve(), dead: !info.alive, noted: false };
+  xt.onData((d) => { t.queue = t.queue.then(() => api("/api/term/input", { id: info.id, data: d })).catch(() => {}); });
+  xt.onResize(({ rows, cols }) => { api("/api/term/resize", { id: info.id, rows, cols }).catch(() => {}); });
+  state.terms.set(info.id, t); return t;
+}
+function renderTermTabs() {
+  $("#termtabs").innerHTML = [...state.terms.values()].map((t) => `<button class="tab ${state.activeTerm === t.info.id ? "active" : ""} ${t.dead ? "dead" : ""}" data-term="${t.info.id}"><span class="st"></span>${esc(t.info.label)}<span class="x" data-tclose="${t.info.id}" aria-label="Close terminal">×</span></button>`).join("");
+  $("#termnote").hidden = state.terms.size > 0;
+}
+$("#termtabs").addEventListener("click", async (e) => {
+  const c = e.target.closest("[data-tclose]");
+  if (c) { e.stopPropagation(); const id = c.dataset.tclose; const t = state.terms.get(id); if (t && !t.dead && !confirm("This terminal is still running. Close it?")) return;
+    await api("/api/term/close", { id }).catch(() => {}); if (t) { t.xt.dispose(); t.pane.remove(); } state.terms.delete(id);
+    if (state.activeTerm === id) state.activeTerm = [...state.terms.keys()].pop() || null; showTerm(state.activeTerm); return; }
+  const b = e.target.closest("[data-term]"); if (b) showTerm(b.dataset.term);
+});
+function showTerm(id) {
+  state.activeTerm = id; for (const t of state.terms.values()) t.pane.classList.toggle("active", t.info.id === id);
+  renderTermTabs(); const t = state.terms.get(id); if (t) requestAnimationFrame(() => { try { t.fit.fit(); } catch (_) {} t.xt.focus(); });
+}
+async function newTerm(body) {
+  const probe = state.terms.get(state.activeTerm); const dims = probe ? { rows: probe.xt.rows, cols: probe.xt.cols } : { rows: 24, cols: 100 };
+  try { const r = await api("/api/term/new", { ...dims, ...body }); const t = addTerm(r.terminal); showTerm(r.terminal.id); try { t.fit.fit(); } catch (_) {} pollTerms(); }
+  catch (e) { toast(e.message); }
+}
+let polling = false;
+async function pollTerms() {
+  if (polling) return; polling = true;
+  while (state.terms.size) {
+    const cur = [...state.terms.values()].map((t) => `${t.info.id}:${t.next}`).join(",");
+    try {
+      const r = await api(`/api/term/read?cursors=${encodeURIComponent(cur)}&wait=20`);
+      for (const [id, v] of Object.entries(r.terminals)) {
+        const t = state.terms.get(id); if (!t) continue;
+        if (v.gone) { t.dead = true; continue; }
+        if (v.data) { t.xt.write(bytes(v.data)); t.next = v.next; }
+        if (v.exit_code !== null && v.exit_code !== undefined && !t.noted) { t.noted = true; t.dead = true; t.xt.write(`\r\n\x1b[90m[process exited with code ${v.exit_code}]\x1b[0m\r\n`); renderTermTabs(); loadStatus(); }
+      }
+    } catch (e) { await new Promise((res) => setTimeout(res, 1500)); }
+  }
+  polling = false;
+}
+const ro = new ResizeObserver(() => { const t = state.terms.get(state.activeTerm); if (t) try { t.fit.fit(); } catch (_) {} });
+ro.observe($("#termbox"));
+async function restoreTerms() { try { const r = await api("/api/term/list"); for (const i of r.terminals) addTerm(i); if (state.terms.size) { showTerm([...state.terms.keys()][0]); pollTerms(); } } catch (_) {} }
+
+/* menus, run bar, splitter */
+$("#newbtn").onclick = (e) => { e.stopPropagation(); $("#newmenu").classList.toggle("open"); };
+document.addEventListener("click", () => $("#newmenu").classList.remove("open"));
+function renderNewMenu() {
+  const i = state.info; const wts = i.worktrees || [];
+  let html = i.profiles.map((p) => `<button data-new="${esc(p.id)}" ${p.installed ? "" : "disabled"}><span>${esc(p.label)}</span><small>${p.installed ? (p.agent ? "agent" : "") : "not installed"}</small></button>`).join("");
+  for (const w of wts) html += i.profiles.filter((p) => p.id === "claude" || p.id === "codex").map((p) => `<button data-new="${esc(p.id)}" data-wt="${esc(w.name)}" ${p.installed ? "" : "disabled"}><span>${esc(p.label)} in ${esc(w.name)}</span><small>${esc(w.branch)}</small></button>`).join("");
+  if (!i.pty) html += '<div class="empty">Windows: pipe-based console. Line-oriented tools work; full-screen TUIs need macOS or Linux.</div>';
+  $("#newlist").innerHTML = html;
+}
+$("#newlist").addEventListener("click", (e) => { const b = e.target.closest("[data-new]"); if (b && !b.disabled) newTerm({ profile: b.dataset.new, worktree: b.dataset.wt || null }); });
+$("#run-go").onclick = () => { const text = $("#run-text").value.trim(); if (!text) { toast("Describe the task first"); return; }
+  newTerm({ run_agent: $("#run-agent").value, instruction: text, isolate: $("#run-iso").checked }); $("#run-text").value = ""; };
+$("#run-text").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#run-go").click(); });
+(function splitter() {
+  const sp = $("#split"), ed = document.querySelector(".editor"), tm = document.querySelector(".term");
+  try { const v = localStorage.getItem("vcmd-split"); if (v) { ed.style.flex = `${v} 1 0`; tm.style.flex = `${100 - v} 1 0`; } } catch (_) {}
+  let drag = false;
+  sp.addEventListener("pointerdown", (e) => { drag = true; sp.setPointerCapture(e.pointerId); });
+  sp.addEventListener("pointermove", (e) => { if (!drag) return; const box = document.querySelector(".center").getBoundingClientRect(); const pct = Math.max(15, Math.min(80, ((e.clientY - box.top) / box.height) * 100));
+    ed.style.flex = `${pct} 1 0`; tm.style.flex = `${100 - pct} 1 0`; try { localStorage.setItem("vcmd-split", Math.round(pct)); } catch (_) {} });
+  sp.addEventListener("pointerup", () => { drag = false; const t = state.terms.get(state.activeTerm); if (t) try { t.fit.fit(); } catch (_) {} });
+})();
+
+/* ---------- start ---------- */
+(async function init() {
+  try {
+    state.info = await api("/api/ws/info");
+    $("#project").textContent = state.info.project; if (state.info.branch) { $("#branch").hidden = false; $("#branch").textContent = state.info.branch; }
+    $("#run-agent").innerHTML = state.info.agents.map((a) => `<option>${esc(a)}</option>`).join("");
+    renderNewMenu(); document.title = state.info.project + " · V/COMMAND Workspace";
+    await Promise.all([loadTree(), loadStatus(), restoreTerms()]);
+    renderChanges();
+  } catch (e) { document.body.innerHTML = `<div class="welcome"><b>Workspace unavailable</b>${esc(e.message)}<br><br>Start it with <span class="mono">vcmd workspace</span>.</div>`; return; }
+  setInterval(() => { if (!document.hidden) { loadStatus(); refreshOpen(); } }, 3000);
+})();
+</script>
+</body>
+</html>

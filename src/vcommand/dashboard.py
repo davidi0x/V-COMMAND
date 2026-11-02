@@ -29,9 +29,11 @@ from typing import Any
 
 from .core import CONFIG_DIR, list_evidence, load_config
 
+WORKSPACE_PAGE = Path(__file__).with_name("workspace.html")
 PAGE = Path(__file__).with_name("dashboard.html")
 ASSETS = Path(__file__).with_name("assets")
-ASSET_TYPES = {".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8", ".svg": "image/svg+xml"}
+ASSET_TYPES = {".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8", ".svg": "image/svg+xml",
+               ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 STATE_FILE = "dashboard.json"
 MAX_BODY = 64 * 1024
 
@@ -199,6 +201,8 @@ class _Handler(BaseHTTPRequestHandler):
     root: Path
     token: str
     port: int
+    workspace: bool = False
+    terminals: Any = None
 
     def log_message(self, *_: Any) -> None:  # keep the terminal quiet; never log tokens
         pass
@@ -219,7 +223,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
-                         "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; "
+                         "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
                          "connect-src 'self'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(body)
@@ -227,11 +231,16 @@ class _Handler(BaseHTTPRequestHandler):
     def _json(self, status: int, data: Any) -> None:
         self._send(status, json.dumps(data).encode("utf-8"), "application/json; charset=utf-8")
 
+    def _origin_ok(self) -> bool:
+        """Cross-site pages must not drive a local shell: a request that names an Origin must be our own."""
+        origin = self.headers.get("Origin")
+        return origin is None or origin in {f"http://127.0.0.1:{self.port}", f"http://localhost:{self.port}"}
+
     def _guard(self) -> dict[str, list[str]] | None:
         url = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(url.query)
-        if not self._host_ok():
-            self._json(HTTPStatus.FORBIDDEN, {"error": "bad host"})
+        if not self._host_ok() or not self._origin_ok():
+            self._json(HTTPStatus.FORBIDDEN, {"error": "bad host or origin"})
             return None
         if not self._token_ok(query):
             self._json(HTTPStatus.UNAUTHORIZED, {"error": "missing or wrong token"})
@@ -249,13 +258,21 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self._send(HTTPStatus.OK, target.read_bytes(), ASSET_TYPES[target.suffix])
             return
-        if self._guard() is None:
+        query = self._guard()
+        if query is None:
             return
         try:
-            if path in {"/", "/index.html"}:
+            if path == "/workspace":
+                if not self.workspace:
+                    self._json(HTTPStatus.FORBIDDEN, {"error": "The workspace is off. Start it with: vcmd workspace"})
+                    return
+                self._send(HTTPStatus.OK, WORKSPACE_PAGE.read_bytes(), "text/html; charset=utf-8")
+            elif path.startswith(("/api/ws/", "/api/term/")):
+                self._json(HTTPStatus.OK, self._workspace_get(path, {k: v[0] for k, v in query.items()}))
+            elif path in {"/", "/index.html"}:
                 self._send(HTTPStatus.OK, PAGE.read_bytes(), "text/html; charset=utf-8")
             elif path == "/api/state":
-                self._json(HTTPStatus.OK, collect_state(self.root))
+                self._json(HTTPStatus.OK, {**collect_state(self.root), "workspace_enabled": self.workspace})
             elif path == "/api/frame":
                 from .state import build_frame, render_frame
                 self._send(HTTPStatus.OK, render_frame(build_frame(self.root)).encode("utf-8"), "text/plain; charset=utf-8")
@@ -265,6 +282,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"hardware": info, "recommendation": recommend(info)})
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+        except PermissionError as error:
+            self._json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+        except ValueError as error:
+            self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
         except Exception as error:  # noqa: BLE001 - report, never crash the server
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(error).__name__}: {error}"})
 
@@ -284,6 +305,8 @@ class _Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError("JSON object expected")
             self._json(HTTPStatus.OK, self._action(path, body))
+        except PermissionError as error:
+            self._json(HTTPStatus.FORBIDDEN, {"error": str(error)})
         except (ValueError, OSError, KeyError) as error:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
@@ -307,6 +330,8 @@ class _Handler(BaseHTTPRequestHandler):
             from .workflow import decide_approval
             a = decide_approval(self.root, str(body.get("id", "")), bool(body.get("approve")))
             return {"ok": True, "id": a["id"], "status": a["status"]}
+        if path.startswith(("/api/ws/", "/api/term/")):
+            return self._workspace_post(path, body)
         if path.startswith("/api/mission/"):
             return self._mission_action(path.rsplit("/", 1)[-1], body)
         if path == "/api/msg":
@@ -325,6 +350,114 @@ class _Handler(BaseHTTPRequestHandler):
             return {"ok": True}
         raise ValueError("unknown action")
 
+
+    # ---- workspace: files, git, terminals (only when started with `vcmd workspace`)
+    def _need_workspace(self) -> None:
+        if not self.workspace:
+            raise PermissionError("The workspace is off. Start it with: vcmd workspace")
+
+    def _workspace_get(self, path: str, q: dict[str, str]) -> dict[str, Any]:
+        import base64
+        from . import workspace as ws
+        from . import terminal as tm
+        self._need_workspace()
+        root = self.root
+        if path == "/api/ws/info":
+            from . import sessions as se
+            cfg = load_config(root)
+            from .adapters import agent_templates
+            return {"project": root.resolve().name, "root": str(root.resolve()), "branch": ws.branch(root),
+                    "repo": ws.is_repo(root), "profiles": tm.profiles(cfg), "pty": not tm.IS_WINDOWS,
+                    "agents": sorted(agent_templates(cfg)),
+                    "worktrees": [{"name": w["name"], "path": w["path"], "branch": w["branch"]}
+                                  for w in se.list_worktrees(se.shared_root(root), with_changes=False) if w["present"]]}
+        if path == "/api/ws/tree":
+            return ws.tree(root)
+        if path == "/api/ws/file":
+            return ws.read_file(root, q.get("path", ""))
+        if path == "/api/ws/status":
+            return {"changes": ws.status(root), "branch": ws.branch(root)}
+        if path == "/api/ws/diff":
+            return ws.diff(root, q.get("path", ""))
+        if path == "/api/term/list":
+            return {"terminals": self.terminals.list()}
+        if path == "/api/term/read":
+            cursors = {}
+            for part in (q.get("cursors") or "").split(","):
+                tid, _, since = part.partition(":")
+                if tid and since.lstrip("-").isdigit():
+                    cursors[tid] = int(since)
+            res = self.terminals.read_many(cursors, wait=float(q.get("wait") or 0))
+            return {"terminals": {tid: ({"gone": True} if v.get("gone") else
+                                        {"data": base64.b64encode(v["data"]).decode("ascii"), "next": v["next"],
+                                         "exit_code": v["exit_code"]}) for tid, v in res.items()}}
+        raise ValueError("unknown workspace request")
+
+    def _workspace_post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        from . import workspace as ws
+        from . import terminal as tm
+        self._need_workspace()
+        root = self.root
+        if path == "/api/ws/save":
+            r = ws.write_file(root, str(body.get("path", "")), body.get("content"),
+                              base_mtime_ns=body.get("base_mtime_ns"), create=bool(body.get("create")))
+            return {"ok": True, **r}
+        if path == "/api/ws/revert":
+            return {"ok": True, **ws.revert(root, str(body.get("path", "")))}
+        if path == "/api/term/new":
+            return {"ok": True, "terminal": self._new_terminal(body)}
+        if path == "/api/term/input":
+            self.terminals.get(str(body.get("id", ""))).write(str(body.get("data", "")).encode("utf-8"))
+            return {"ok": True}
+        if path == "/api/term/resize":
+            self.terminals.get(str(body.get("id", ""))).resize(int(body.get("rows", 24)), int(body.get("cols", 80)))
+            return {"ok": True}
+        if path == "/api/term/close":
+            self.terminals.close(str(body.get("id", "")))
+            return {"ok": True}
+        raise ValueError("unknown workspace action")
+
+    def _new_terminal(self, body: dict[str, Any]) -> dict[str, Any]:
+        import sys as _sys
+        from . import terminal as tm
+        from . import sessions as se
+        root = self.root
+        cfg = load_config(root)
+        cwd = root.resolve()
+        wt = body.get("worktree")
+        if wt:
+            hit = next((w for w in se.list_worktrees(se.shared_root(root), with_changes=False)
+                        if w["name"] == str(wt) and w["present"]), None)
+            if hit is None:
+                raise ValueError(f"No worktree {wt}")
+            cwd = Path(hit["path"])
+        rows, cols = int(body.get("rows") or 24), int(body.get("cols") or 80)
+        if body.get("run_agent"):  # verified run: vcmd agent <agent> --instruction … (argv, no shell)
+            from .adapters import agent_templates
+            agent = str(body["run_agent"])
+            if agent not in agent_templates(cfg):
+                raise ValueError(f"Unknown agent {agent}")
+            instruction = " ".join(str(body.get("instruction", "")).split())[:4000]
+            argv = [_sys.executable, "-m", "vcommand", "agent", agent]
+            if body.get("isolate"):
+                argv.append("--isolate")
+            if instruction:
+                argv += ["--instruction", instruction]
+            label = f"run {agent}"
+            profile = {"agent": True, "argv": argv}
+        else:
+            profile = next((p for p in tm.profiles(cfg) if p["id"] == str(body.get("profile", "shell"))), None)
+            if profile is None:
+                raise ValueError("Unknown terminal profile")
+            argv, label = list(profile["argv"]), profile["label"]
+        import shutil as _sh
+        if not _sh.which(argv[0]) and not Path(argv[0]).exists():
+            raise ValueError(f"`{argv[0]}` is not installed or not on PATH")
+        n = sum(1 for t in self.terminals.list() if t["label"].split(" #")[0] == label) + 1
+        label = f"{label} #{n}"
+        env = tm.terminal_env(cwd, profile, label.replace(" ", "-").replace("#", ""))
+        t = self.terminals.create(label, argv, cwd, env, rows, cols)
+        return t.info()
 
     def _mission_action(self, action: str, body: dict[str, Any]) -> dict[str, Any]:
         from . import mission as mi
@@ -383,6 +516,12 @@ class _LoopbackServer(ThreadingHTTPServer):
     """HTTPServer.server_bind() calls socket.getfqdn(), a reverse DNS lookup that can block for tens of
     seconds on macOS when DNS is slow or unreachable (found on CI). A loopback server never needs it."""
 
+    def server_close(self) -> None:
+        terminals = getattr(self, "terminals", None)
+        if terminals is not None:
+            terminals.close_all()
+        super().server_close()
+
     def server_bind(self) -> None:
         socketserver.TCPServer.server_bind(self)
         host, port = self.server_address[:2]
@@ -390,14 +529,19 @@ class _LoopbackServer(ThreadingHTTPServer):
         self.server_port = port
 
 
-def make_server(root: Path, port: int = 0, token: str | None = None) -> tuple[ThreadingHTTPServer, str]:
+def make_server(root: Path, port: int = 0, token: str | None = None, workspace: bool = False) -> tuple[ThreadingHTTPServer, str]:
+    """workspace=True also serves /workspace: real terminals, the file editor and git changes. That is a shell
+    on this machine, so it is opt-in (`vcmd workspace`); the dashboard alone never offers it."""
+    from .terminal import TerminalManager
     load_config(root)  # must be an initialized project
     token = token or pysecrets.token_urlsafe(24)
     server = _LoopbackServer(("127.0.0.1", port), _Handler)
+    server.terminals = TerminalManager()
     actual = server.server_address[1]
-    handler = type("Handler", (_Handler,), {"root": root, "token": token, "port": actual})
+    handler = type("Handler", (_Handler,), {"root": root, "token": token, "port": actual, "workspace": workspace,
+                                            "terminals": server.terminals})
     server.RequestHandlerClass = handler
-    return server, f"http://127.0.0.1:{actual}/?token={token}"
+    return server, f"http://127.0.0.1:{actual}/{'workspace' if workspace else ''}?token={token}"
 
 
 # ---------------------------------------------------------------- background process

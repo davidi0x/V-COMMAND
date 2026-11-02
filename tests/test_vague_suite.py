@@ -21,10 +21,11 @@ class VagueSuiteTests(unittest.TestCase):
             for f in sorted(out.rglob("*")):
                 if f.is_file():
                     rel = f.relative_to(out)
-                    self.assertEqual((SUITE / rel).read_text(), f.read_text(), f"{rel} is stale: run scripts/gen_vague_suite.py")
+                    self.assertEqual((SUITE / rel).read_text(encoding="utf-8"), f.read_text(encoding="utf-8"),
+                                     f"{rel} is stale: run scripts/gen_vague_suite.py")
 
     def test_each_task_fails_unfixed_and_passes_fixed(self):
-        suite = json.loads((SUITE / "suite.json").read_text())
+        suite = json.loads((SUITE / "suite.json").read_text(encoding="utf-8"))
         self.assertEqual(len(suite["tasks"]), 10)
         for t in suite["tasks"]:
             with tempfile.TemporaryDirectory() as temp:

@@ -19,7 +19,11 @@ vcmd mission budget 2.50 && vcmd mission approve && vcmd mission run
 * **Neutral across vendors** — mix models per step, fail over when a provider breaks, hand a failed task to another agent with everything that already failed.
 * **Honest numbers** — every claim is measured and published, including the unflattering ones ([benchmarks](benchmarks/results/vague10-haiku-sonnet.md)).
 
-[Mission docs](docs/MISSION.md) · [Persistent workflow](docs/WORKFLOW.md) · [Adapters](docs/ADAPTERS.md)
+```bash
+vcmd workspace        # real terminals (Claude Code, Codex, shell), files, editor, git changes — in your browser
+```
+
+[Mission docs](docs/MISSION.md) · [Workspace](docs/WORKSPACE.md) · [Persistent workflow](docs/WORKFLOW.md) · [Adapters](docs/ADAPTERS.md)
 
 ![vcmd demo: agent-a reports done, the check fails and is recorded; agent-b receives the context frame, fixes it, the check passes](docs/demo.svg)
 
@@ -45,6 +49,7 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Failover, cost, budget:** agents whose provider fails are skipped for a cooldown; Claude Code's reported cost is recorded per attempt; `--budget` stops spending on a task.
 - **Benchmark:** `vcmd bench` compares `agent:plain` vs `agent:frame` on a task suite (see [benchmarks/](benchmarks/README.md)). Measured on 200 TypeScript tasks with Claude Haiku: no pass-rate benefit from the frame so far (200/200 both ways, also after a failed first attempt) at +5–7% cost — published as measured.
 - **Local backup and overnight queue:** `vcmd hw` recommends an Ollama model that fits your machine and registers it as a fallback agent; `vcmd queue` runs tasks overnight, commits only verified work and keeps questions for you.
+- **Workspace:** `vcmd workspace` — real terminal tabs (a PTY: Claude Code, Codex, OpenCode, shell), file tree and editor with conflict-safe saves, live changes with diff/revert, and a "run with checks" bar. Opt-in, loopback + token + Origin check. See [docs/WORKSPACE.md](docs/WORKSPACE.md) (Unix; Windows tabs are line-oriented only).
 - **Mission:** `vcmd mission` / the dashboard's Mission tab — one sentence → (optional read-only enhancer) brief, questions and steps → sliders for who does how much → cost/token/time range from your own history → approve → step-by-step run with the gates after every step. See [docs/MISSION.md](docs/MISSION.md) for what it measured and what it does not claim.
 - **Persistent workflow for every agent** ([docs/WORKFLOW.md](docs/WORKFLOW.md)): five-field operating brief (`vcmd task start --scope --constraint --done --leave-behind`); `handoff.md` (goal, state, files touched, open issues, next step) rewritten after every run, hook stop and compaction; `vcmd decide` / `vcmd todo`; deploys, publishing, database writes and bulk deletes need `vcmd approve` (PreToolUse hook + stream guard); `vcmd loop` runs planner → builder(s) → reviewer with the gates as judge; `vcmd wake` + `vcmd schedule cron|systemd|github` continue the work from a trigger.
 - **Parallel sessions and reach** ([docs/WORKFLOW.md](docs/WORKFLOW.md#7-worktrees-not-chaos-one-isolated-workspace-per-live-session)): `vcmd worktree new <name>` gives every live session its own worktree with collision warnings; `vcmd sessions` / `vcmd msg send` let sessions talk; `vcmd agent --continue / --resume / --fork`; `vcmd roles` + `queue add --role`; Telegram / Slack / ntfy / webhook notifications, `vcmd remote telegram` to approve and steer from your phone, `vcmd autopilot` to keep waking the work.
@@ -178,6 +183,7 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | OpenCode adapter | Implemented (`opencode run`) |
 | Code slice + blast radius in the frame | Implemented (Python `ast`; TS/JS tree-sitter with `[ast]`, scanner otherwise) |
 | Benchmark harness + 200-task TypeScript suite + handoff arms | Implemented (`vcmd bench`, `benchmarks/ts200`) |
+| Workspace: PTY terminals, editor, changes, run-with-checks | Implemented (`vcmd workspace`; Unix PTY, Windows pipe console only) |
 | Mission: enhancer, sliders, history-based estimate, approve, run | Implemented (`vcmd mission`, dashboard Mission tab) |
 | Race mode (parallel candidates, first verified wins) | Implemented (`vcmd agent --race`) |
 | Stream guard (kill on banned pattern mid-attempt) | Implemented (Claude Code stream-json) |
@@ -210,6 +216,7 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 - [Architecture and evidence contract](docs/ARCHITECTURE.md)
 - [Agent adapters (Claude Code, Codex CLI)](docs/ADAPTERS.md)
 - [Mission: plan, sliders, estimate, approve, run](docs/MISSION.md)
+- [Workspace: terminals, editor, changes](docs/WORKSPACE.md)
 - [Persistent workflow: brief, handoff, guardrails, roles, triggers](docs/WORKFLOW.md)
 - [Execution Kernel: stateless models, context frames, roadmap](docs/EXECUTION_KERNEL.md)
 - [MVP acceptance criteria](docs/MVP.md)

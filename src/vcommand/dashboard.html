@@ -299,6 +299,7 @@ label.lbl { display: block; font-weight: 600; font-size: 14px; margin: 0 0 7px; 
   <div class="seg" id="groups" role="group" aria-label="Sections"><span class="pill" aria-hidden="true"></span></div>
   <div class="tools">
     <div class="project" title=""><svg width="20" height="20"><use href="#i-cube"/></svg><span id="project">project</span></div>
+    <button class="btn small ghost" id="to-ws" type="button" title="Real terminals, files and editor">Workspace</button>
     <button class="icon-btn" id="refresh" aria-label="Refresh"><svg><use href="#i-refresh"/></svg></button>
     <button class="icon-btn" id="theme" aria-label="Toggle dark mode"><svg><use href="#i-moon"/></svg></button>
   </div>
@@ -950,6 +951,7 @@ document.addEventListener("click", async (e) => {
     else if (el.dataset.agent) { $("#agent-detail")?.scrollIntoView({ behavior: REDUCED.matches ? "auto" : "smooth" }); }
     else if (el.dataset.themeSet) { setTheme(el.dataset.themeSet); paint(); }
     else if (el.id === "copy-frame") { await navigator.clipboard.writeText(FRAME || await api("/api/frame")); toast("Frame copied"); }
+    else if (el.id === "to-ws") { if (STATE?.workspace_enabled) location.href = `/workspace?token=${encodeURIComponent(TOKEN)}`; else toast("Start the workspace with: vcmd workspace (it contains a terminal, so it is opt-in)"); }
     else if (el.id === "refresh") { HW = null; await load(true); toast("Updated"); }
     else if (el.id === "theme") { const dark = (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark"; setTheme(dark ? "light" : "dark"); }
   } catch (err) { toast(err.message); }
