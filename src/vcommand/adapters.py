@@ -42,7 +42,16 @@ DEFAULT_AGENTS: dict[str, Any] = {
                         "--permission-mode", "acceptEdits", PROMPT_PLACEHOLDER], "parser": "claude-stream"},
     # OpenCode: `opencode run <message>` (non-interactive).
     "opencode": ["opencode", "run", PROMPT_PLACEHOLDER],
+    # Model presets for roles (Claude Code model aliases). Which model suits which role is your call:
+    # `vcmd roles set plan claude-opus`, `vcmd roles set build claude-sonnet`, ...
+    "claude-opus": {"argv": ["claude", "-p", "--model", "opus", "--output-format", "stream-json", "--verbose",
+                             "--permission-mode", "acceptEdits", PROMPT_PLACEHOLDER], "parser": "claude-stream"},
+    "claude-sonnet": {"argv": ["claude", "-p", "--model", "sonnet", "--output-format", "stream-json", "--verbose",
+                               "--permission-mode", "acceptEdits", PROMPT_PLACEHOLDER], "parser": "claude-stream"},
+    "claude-haiku": {"argv": ["claude", "-p", "--model", "haiku", "--output-format", "stream-json", "--verbose",
+                              "--permission-mode", "acceptEdits", PROMPT_PLACEHOLDER], "parser": "claude-stream"},
 }
+SESSION_PLACEHOLDER = "{session}"
 from .parsers import PARSERS as COST_PARSERS  # noqa: E402
 
 AGENT_INSTRUCTIONS = """You are continuing a software task managed by V/COMMAND.
@@ -55,6 +64,9 @@ condition, leave-behind), completed steps, next step, approaches that already fa
 - Leave state behind, if `vcmd` is available: progress with `vcmd task done "<step>"` and
   `vcmd task next "<exact next step>"`, decisions with `vcmd decide "<decision>" --why "<reason>"`,
   open items with `vcmd todo add "<item>"`. V/COMMAND writes handoff.md and the evidence (diff, gate results).
+- Other sessions may work in parallel (`vcmd sessions`, `vcmd worktree list`). Send short findings,
+  warnings or handoffs with `vcmd msg send <session|all> "<text>"`; `vcmd msg send developer "<text>"`
+  reaches the developer's phone if channels are configured. Avoid files other worktrees changed.
 - When the done condition is met, stop. V/COMMAND runs the acceptance gates itself; your own report is not evidence.
 """
 
@@ -64,11 +76,16 @@ AGENT_LABELS = {"claude": "claude-code", "codex": "codex"}
 
 
 def hook_commands(target: str) -> dict[str, str]:
-    return {"SessionStart": f"vcmd hook {target} session-start", "Stop": f"vcmd hook {target} stop",
-            "PreToolUse": f"vcmd hook {target} pre-tool", "PreCompact": f"vcmd hook {target} pre-compact"}
+    cmds = {"SessionStart": f"vcmd hook {target} session-start", "Stop": f"vcmd hook {target} stop",
+            "PreToolUse": f"vcmd hook {target} pre-tool", "PreCompact": f"vcmd hook {target} pre-compact",
+            "PostToolUse": f"vcmd hook {target} post-tool", "UserPromptSubmit": f"vcmd hook {target} prompt"}
+    if target == "claude":
+        cmds["SessionEnd"] = f"vcmd hook {target} session-end"
+    return cmds
 
 
-HOOK_EVENTS = ("session-start", "stop", "pre-tool", "pre-compact")
+HOOK_EVENTS = ("session-start", "stop", "pre-tool", "pre-compact", "post-tool", "prompt", "session-end")
+DEFAULT_ROTATE_TOKENS = 200_000  # transcript bytes / 4: a rough, conservative estimate
 # Claude Code names its shell tool "Bash"; Codex hooks are installed without a matcher and the handler
 # looks for a shell command in the tool input.
 HOOK_MATCHERS = {("claude", "PreToolUse"): "Bash"}
@@ -91,7 +108,45 @@ def _spec(name: str, raw: Any) -> dict[str, Any]:
         raise ValueError(f'Agent template "{name}" needs a "{PROMPT_PLACEHOLDER}" argument')
     if cost is not None and cost not in COST_PARSERS:
         raise ValueError(f'Agent "{name}": unknown output parser {cost!r} (known: {", ".join(COST_PARSERS)})')
-    return {"argv": list(argv), "cost": cost}
+    spec = {"argv": list(argv), "cost": cost}
+    for key in ("resume", "fork"):
+        alt = raw.get(key)
+        if alt is not None:
+            if not (isinstance(alt, list) and PROMPT_PLACEHOLDER in alt and SESSION_PLACEHOLDER in alt):
+                raise ValueError(f'Agent "{name}": "{key}" must be an argv list with {PROMPT_PLACEHOLDER} '
+                                 f'and {SESSION_PLACEHOLDER}')
+            spec[key] = list(alt)
+    return spec
+
+
+def session_argv(spec: dict[str, Any], mode: str) -> list[str] | None:
+    """argv that continues (mode "resume") or branches (mode "fork") an earlier agent session.
+
+    Claude Code: `--resume <id>` (+ `--fork-session`). Codex: `codex exec resume <id>` (no fork).
+    Other agents: the template's own "resume" / "fork" lists, or None (not supported)."""
+    if mode in spec:
+        return list(spec[mode])
+    argv = spec["argv"]
+    if argv[0] == "claude" or argv[0].endswith(("/claude", "\\claude", "claude.exe", "claude.cmd")):
+        i = argv.index(PROMPT_PLACEHOLDER)
+        extra = ["--resume", SESSION_PLACEHOLDER] + (["--fork-session"] if mode == "fork" else [])
+        return argv[:i] + extra + argv[i:]
+    if argv[:2] == ["codex", "exec"] and mode == "resume":
+        model = []
+        for flag in ("-m", "--model"):
+            if flag in argv and argv.index(flag) + 1 < len(argv):
+                model = [flag, argv[argv.index(flag) + 1]]
+        return ["codex", "exec", "resume", "--json", "-c", 'sandbox_mode="workspace-write"', *model,
+                SESSION_PLACEHOLDER, PROMPT_PLACEHOLDER]
+    return None
+
+
+def last_agent_session(root: Path, agent: str) -> str | None:
+    task = current_task_id(root)
+    runs = [r for r in list_evidence(root) if r.get("agent") == agent and r.get("agent_session")]
+    same_task = [r for r in runs if r.get("task_id") == task]
+    pick = (same_task or runs)
+    return pick[-1]["agent_session"] if pick else None
 
 
 def agent_templates(cfg: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -232,8 +287,16 @@ def agent_env(root: Path, extra: dict[str, str] | None = None) -> dict[str, str]
             secrets = secrets_env()
         except (OSError, ValueError, subprocess.SubprocessError):
             secrets = {}
-    return {**secrets, **os.environ, "VCOMMAND_ROOT": str(root.resolve()), "VCOMMAND_WRAPPED": "1", **(extra or {})}
+    from .secrets_store import NOT_FOR_AGENTS
+    shell = {k: v for k, v in os.environ.items() if k not in NOT_FOR_AGENTS and k not in PARENT_SESSION_VARS}
+    return {**secrets, **shell, "VCOMMAND_ROOT": str(root.resolve()), "VCOMMAND_WRAPPED": "1", **(extra or {})}
 
+
+# When V/COMMAND itself runs inside a Claude Code session, these belong to that parent session. Found live:
+# a child `claude -p` inherited CLAUDE_CODE_SESSION_ID, reused the parent's session id, and its hooks
+# wrote into the parent's session environment. Every launched agent gets its own session.
+PARENT_SESSION_VARS = {"CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_REMOTE_SESSION_ID", "CLAUDE_ENV_FILE",
+                       "VCOMMAND_SESSION"}
 
 STOPPED_FOR_HUMAN = 3  # run_agents exit code: an agent asked for a human decision
 
@@ -266,11 +329,34 @@ def _approval_stop(root: Path, item: dict[str, Any], since: str, extra_env: dict
     return True
 
 
-def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, instruction: str | None = None,
+def run_agents(root: Path, agents: list[str], *, notify_result: bool = True, **kw: Any) -> int:
+    """Run agents in order until the gates pass (see `_run_agents`), then tell the developer's channels."""
+    code = _run_agents(root, agents, **kw)
+    if notify_result and not (kw.get("extra_env") or {}).get("VCOMMAND_QUEUE_TASK"):
+        _notify_outcome(root, code, f"vcmd agent {' '.join(agents)}")
+    return code
+
+
+def _notify_outcome(root: Path, code: int, what: str) -> None:
+    try:
+        from .channels import notify, channels
+        if not channels(load_config(root)):
+            return
+        from .workflow import build_handoff
+        h = build_handoff(root)
+        event = {0: "verified", STOPPED_FOR_HUMAN: "frozen"}.get(code, "failed")
+        notify(root, event, f"{what}: {event}\nGoal: {h['goal']}\nState: {h['current_state']}\n"
+                            f"Open: {'; '.join(h['open_issues'][:3]) or 'none'}\nNext: {h['next_step']}")
+    except (OSError, ValueError, FileNotFoundError):
+        pass
+
+
+def _run_agents(root: Path, agents: list[str], *, attempts: int | None = None, instruction: str | None = None,
                timeout: int = 3600, check_timeout: int = 600, out: TextIO | None = None,
                isolate: bool = False, budget_usd: float | None = None,
                extra_checks: list[list[str]] | None = None, extra_env: dict[str, str] | None = None,
-               stop_check=None, repo: Path | None = None, head: str | None = None, apply_fn=None) -> int:
+               stop_check=None, repo: Path | None = None, head: str | None = None, apply_fn=None,
+               session: str | None = None) -> int:
     """Run agents in order (cycling) until the gates pass. Returns a CLI exit code.
 
     isolate=True: every attempt runs in a fresh git worktree at HEAD; only a verified attempt's
@@ -282,7 +368,9 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
     a reason stops the run with STOPPED_FOR_HUMAN and discards that attempt (used by the queue).
     repo: the git repository when V/COMMAND state lives elsewhere (`root`), e.g. parallel queue workers;
     head: base commit for isolated attempts (skips the clean-tree check, the caller guarantees it);
-    apply_fn(worktree) -> changed paths: replaces the default "apply patch to repo" step."""
+    apply_fn(worktree) -> changed paths: replaces the default "apply patch to repo" step.
+    session: None = fresh agent session per attempt (the default: no context rot); "resume" / "fork" =
+    continue or branch the agent's last recorded session; "resume:<id>" / "fork:<id>" = that session."""
     repo = repo or root
     out = out or sys.stdout
     cfg = load_config(root)
@@ -323,13 +411,31 @@ def run_agents(root: Path, agents: list[str], *, attempts: int | None = None, in
         cursor += 1
         spec = templates[name]
         frame = build_frame(root, code_root=repo)
-        prompt = build_prompt(frame, instruction)
-        argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
+        from .sessions import shared_root, worktree_for, take_messages, render_messages
+        shared = shared_root(repo)
+        sname = (worktree_for(shared, repo) or {}).get("name") or name
+        msgs = take_messages(shared, sname)
+        extra = (f"\nMessages for this session from other sessions or the developer:\n{render_messages(msgs)}"
+                 if msgs else "")
+        prompt = build_prompt(frame, ((instruction or "") + extra).strip() or None)
+        template = spec["argv"]
+        if session:
+            mode, _, sid = session.partition(":")
+            sid = sid or last_agent_session(root, name)
+            alt = session_argv(spec, mode)
+            if alt is None or not sid:
+                print(f"V/  SESSION    {name}: " + ("cannot " + mode + " sessions" if alt is None else
+                                                    "no earlier session recorded") + "; starting fresh", file=out)
+            else:
+                template = [sid if a == SESSION_PLACEHOLDER else a for a in alt]
+                print(f"V/  SESSION    {name}: {mode} {sid[:12]}", file=out)
+        argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in template]
         shown = [f"<context frame {frame['continuity_token'][:23]}>" if a == PROMPT_PLACEHOLDER else a
-                 for a in spec["argv"]]
+                 for a in template]
         print(f"\nV/  HANDOFF    attempt {n}/{attempts} -> {name}", file=out, flush=True)
         common = dict(timeout=timeout, check_timeout=check_timeout, agent=name, record_argv=shown, gates_judge=True,
-                      child_stdin=subprocess.DEVNULL, env=agent_env(root, {**(extra_env or {}), "VCOMMAND_AGENT": name}),
+                      child_stdin=subprocess.DEVNULL,
+                      env=agent_env(root, {"VCOMMAND_SESSION": sname, **(extra_env or {}), "VCOMMAND_AGENT": name}),
                       cost_parser=spec["cost"],
                       extra_checks=extra_checks,
                       parser_context=parser_context(root, cfg, spec["argv"], agent=name, extra_env=extra_env))
@@ -510,17 +616,55 @@ def _hook_dirs(payload: dict[str, Any]) -> tuple[Path, Path]:
     return (Path(env) if env else work), work
 
 
-def hook_session_start(payload: dict[str, Any], out: TextIO) -> int:
+def _session_ctx(payload: dict[str, Any], target: str) -> tuple[Path, Path, Path, str, str]:
+    """(state root, work dir, shared root, session id, session name) for a hook call."""
+    from .sessions import shared_root, session_name
+    root, work = _hook_dirs(payload)
+    shared = shared_root(work)
+    sid = str(payload.get("session_id") or "")
+    if os.environ.get("VCOMMAND_WRAPPED") and not os.environ.get("VCOMMAND_SESSION"):
+        name = os.environ.get("VCOMMAND_AGENT") or AGENT_LABELS.get(target, target)
+    else:
+        name = session_name(shared, work, sid or None, AGENT_LABELS.get(target, target))
+    return root, work, shared, sid, name
+
+
+def _inbox_text(shared: Path, name: str) -> str:
+    from .sessions import take_messages, render_messages
+    msgs = take_messages(shared, name)
+    if not msgs:
+        return ""
+    return (f"[V/COMMAND] Message(s) for session `{name}` from other sessions or the developer:\n"
+            + render_messages(msgs) + "\nAct on them if relevant; reply with `vcmd msg send <session> \"…\"`.")
+
+
+def hook_session_start(payload: dict[str, Any], out: TextIO, target: str = "claude") -> int:
     """SessionStart: plain stdout is added to the agent's context (Claude Code and Codex)."""
     if os.environ.get("VCOMMAND_WRAPPED"):
         return 0  # `vcmd agent` already put the frame in the prompt
-    root, _ = _hook_dirs(payload)
+    root, work, shared, sid, _ = _session_ctx(payload, target)
     try:
         frame = build_frame(root)
     except FileNotFoundError:
         return 0  # project not initialized: stay silent
+    from .sessions import register_session
+    name = None
+    if sid:
+        name = register_session(shared, sid, agent=AGENT_LABELS.get(target, target), cwd=work,
+                                source=payload.get("source"))["name"]
+        env_file = os.environ.get("CLAUDE_ENV_FILE")
+        if env_file:  # Claude Code: variables for this session's Bash commands (`vcmd msg` knows its sender)
+            try:
+                with open(env_file, "a", encoding="utf-8") as f:
+                    f.write(f"export VCOMMAND_SESSION={name}\n")
+            except OSError:
+                pass
     source = payload.get("source", "startup")
-    out.write(f"[V/COMMAND] Session {source}: project state restored from disk.\n\n")
+    out.write(f"[V/COMMAND] Session {source}" + (f" `{name}`" if name else "") + ": project state restored from disk.\n\n")
+    if name:
+        inbox = _inbox_text(shared, name)
+        if inbox:
+            out.write(inbox + "\n\n")
     from .workflow import read_handoff
     handoff = read_handoff(root)
     if handoff:
@@ -567,6 +711,128 @@ def hook_pre_tool(payload: dict[str, Any], out: TextIO, target: str = "claude") 
     return 0
 
 
+def _hook_state(shared: Path, name: str) -> tuple[Path, dict[str, Any]]:
+    path = shared / CONFIG_DIR / "hooks" / f"session-{name}.json"
+    try:
+        return path, json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return path, {}
+
+
+def _collision_note(shared: Path, work: Path, name: str, file_path: str, state: dict[str, Any]) -> str | None:
+    """Warn (once per file) when this session edits a file another live worktree already changed."""
+    from .sessions import list_worktrees, _git, _changed
+    if not _load_registry_has_worktrees(shared):
+        return None
+    top = _git(["rev-parse", "--show-toplevel"], work).stdout.strip()
+    if not top:
+        return None
+    try:
+        rel = Path(file_path).resolve().relative_to(Path(top).resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
+    warned = state.setdefault("collisions", [])
+    if rel in warned:
+        return None
+    others = [w["name"] for w in list_worktrees(shared) if rel in w.get("changed", [])
+              and not Path(top).resolve() == Path(w["path"]).resolve()]
+    if Path(top).resolve() != shared.resolve():
+        head = _git(["rev-parse", "HEAD"], shared).stdout.strip()
+        if head and rel in _changed(shared, head):
+            others.append("main")
+    if not others:
+        return None
+    warned.append(rel)
+    return (f"[V/COMMAND] Collision: `{rel}` is also changed in worktree(s) {', '.join(others)}. Parallel work only "
+            f"stays clean when files stop colliding: coordinate first (`vcmd msg send {others[0]} \"…\"`) or "
+            f"keep your change minimal and note it in `vcmd decide`.")
+
+
+def _load_registry_has_worktrees(shared: Path) -> bool:
+    from .sessions import _load
+    return bool(_load(shared)["worktrees"])
+
+
+def _rotation_note(root: Path, shared: Path, payload: dict[str, Any], state: dict[str, Any]) -> str | None:
+    """Context rot: once the transcript is large, checkpoint and suggest a fresh session (once)."""
+    path = payload.get("transcript_path")
+    if not isinstance(path, str) or state.get("rotation_warned"):
+        return None
+    try:
+        size = os.path.getsize(path)
+        limit = int((load_config(root).get("rotation") or {}).get("max_context_tokens", DEFAULT_ROTATE_TOKENS))
+    except (OSError, ValueError, TypeError, FileNotFoundError):
+        return None
+    if limit <= 0 or size // 4 < limit:
+        return None
+    state["rotation_warned"] = True
+    from .workflow import write_handoff
+    try:
+        write_handoff(root)
+    except (OSError, ValueError, FileNotFoundError):
+        pass
+    from .channels import notify
+    notify(shared, "rotate", f"A session's context is large (~{size // 4000}k tokens est.); handoff.md checkpointed.")
+    return (f"[V/COMMAND] This session's context is large (~{size // 4000}k tokens, estimated). Context rot "
+            f"ahead: finish the current step, record `vcmd task next \"<exact next step>\"`, then tell the "
+            f"developer to start a fresh session — handoff.md (just checkpointed) and the frame restore the state.")
+
+
+def _context_reply(out: TextIO, event: str, parts: list[str]) -> None:
+    text = "\n\n".join(p for p in parts if p)
+    if text:
+        json.dump({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}, out)
+        out.write("\n")
+
+
+def hook_post_tool(payload: dict[str, Any], out: TextIO, target: str = "claude") -> int:
+    """PostToolUse: deliver messages, warn about file collisions between worktrees, detect context rot."""
+    root, work, shared, sid, name = _session_ctx(payload, target)
+    try:
+        load_config(shared)
+    except FileNotFoundError:
+        return 0
+    from .sessions import touch_session
+    if sid:
+        touch_session(shared, sid)
+    path, state = _hook_state(shared, name)
+    parts = [_inbox_text(shared, name)]
+    tool_input = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+    target_file = tool_input.get("file_path") or tool_input.get("notebook_path")
+    if payload.get("tool_name") in {"Edit", "Write", "MultiEdit", "NotebookEdit"} and isinstance(target_file, str):
+        parts.append(_collision_note(shared, work, name, target_file, state))
+    parts.append(_rotation_note(root, shared, payload, state))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    _context_reply(out, "PostToolUse", [p for p in parts if p])
+    return 0
+
+
+def hook_prompt(payload: dict[str, Any], out: TextIO, target: str = "claude") -> int:
+    """UserPromptSubmit: messages that arrived while the session waited for the developer."""
+    _, _, shared, sid, name = _session_ctx(payload, target)
+    try:
+        load_config(shared)
+    except FileNotFoundError:
+        return 0
+    from .sessions import touch_session
+    if sid:
+        touch_session(shared, sid)
+    _context_reply(out, "UserPromptSubmit", [_inbox_text(shared, name)])
+    return 0
+
+
+def hook_session_end(payload: dict[str, Any], out: TextIO, target: str = "claude") -> int:
+    _, _, shared, sid, _ = _session_ctx(payload, target)
+    if sid:
+        from .sessions import touch_session
+        touch_session(shared, sid, ended=True)
+    return 0
+
+
 def hook_pre_compact(payload: dict[str, Any], out: TextIO) -> int:
     """PreCompact: checkpoint before the context is summarized; SessionStart(compact) re-injects it."""
     from .workflow import write_handoff
@@ -582,10 +848,18 @@ def hook_stop(payload: dict[str, Any], out: TextIO, err: TextIO, target: str = "
     """Stop: run gates; on failure block the stop (bounded) and record the failure.
 
     Reply protocol shared by Claude Code and Codex: JSON on stdout, {"decision": "block", "reason": ...}."""
-    root, work = _hook_dirs(payload)
+    root, work, shared, sid, name = _session_ctx(payload, target)
     try:
         cfg = load_config(root)
     except FileNotFoundError:
+        return 0
+    try:
+        inbox = _inbox_text(shared, name)
+    except (OSError, ValueError):
+        inbox = ""
+    if inbox:  # a message arrived while the session worked: let it act before finishing
+        json.dump({"decision": "block", "reason": inbox + "\nThen finish your task as usual."}, out)
+        out.write("\n")
         return 0
     if not cfg["checks"]:
         return 0
@@ -629,7 +903,13 @@ def run_hook(target: str, event: str, stdin: TextIO, out: TextIO, err: TextIO) -
     if not isinstance(payload, dict):
         payload = {}
     if event == "session-start":
-        return hook_session_start(payload, out)
+        return hook_session_start(payload, out, target)
+    if event == "post-tool":
+        return hook_post_tool(payload, out, target)
+    if event == "prompt":
+        return hook_prompt(payload, out, target)
+    if event == "session-end":
+        return hook_session_end(payload, out, target)
     if event == "stop":
         return hook_stop(payload, out, err, target)
     if event == "pre-tool":

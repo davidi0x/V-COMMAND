@@ -78,7 +78,9 @@ def make_parser() -> argparse.ArgumentParser:
     sub.add_parser("decisions", help="List recorded decisions")
     todo = sub.add_parser("todo", help="Open items for the next session (.vcommand/todo.md)")
     todo_sub = todo.add_subparsers(dest="todo_action", required=True)
-    todo_sub.add_parser("add", help="Add an item").add_argument("text")
+    todo_add = todo_sub.add_parser("add", help="Add an item")
+    todo_add.add_argument("text")
+    todo_add.add_argument("--owner", help="Who should do it (session, agent or person)")
     todo_sub.add_parser("done", help="Close an item by number or unique text").add_argument("ref")
     todo_sub.add_parser("list", help="List items")
     handoff = sub.add_parser("handoff", help="5-line handoff: goal, state, files touched, open issues, next step")
@@ -113,6 +115,58 @@ def make_parser() -> argparse.ArgumentParser:
     sched.add_argument("--at", default="02:00", help="HH:MM (GitHub: UTC)")
     sched.add_argument("--loop", action="store_true")
     sched.add_argument("--write", action="store_true", help="github: write .github/workflows/vcommand-wake.yml")
+    wt = sub.add_parser("worktree", help="One git worktree per live session (parallel work without collisions)")
+    wt_sub = wt.add_subparsers(dest="wt_action", required=True)
+    wt_new = wt_sub.add_parser("new", help="Create ../<repo>-<name> on branch vcmd/<name> with its own state and hooks")
+    wt_new.add_argument("name")
+    wt_new.add_argument("--branch")
+    wt_new.add_argument("--base", help="Start point (default HEAD)")
+    wt_new.add_argument("--path")
+    wt_new.add_argument("--goal", help="Start this task in the worktree")
+    wt_sub.add_parser("list", help="Worktrees, branches and changed files")
+    wt_sub.add_parser("conflicts", help="Files changed in more than one worktree")
+    wt_rm = wt_sub.add_parser("rm", help="Remove a worktree (refuses with uncommitted changes)")
+    wt_rm.add_argument("name")
+    wt_rm.add_argument("--force", action="store_true")
+    sub.add_parser("sessions", help="Live agent sessions registered by the hooks")
+    msg = sub.add_parser("msg", help="Short messages between live sessions (and to the developer's channels)")
+    msg_sub = msg.add_subparsers(dest="msg_action", required=True)
+    msg_send = msg_sub.add_parser("send", help="Send to a session name, 'all', or 'developer' (your channels)")
+    msg_send.add_argument("to")
+    msg_send.add_argument("text")
+    msg_send.add_argument("--from", dest="sender", help="Sender name (default: this session)")
+    msg_sub.add_parser("list", help="Recent messages")
+    ch = sub.add_parser("channel", help="Notification channels: telegram, slack, ntfy, webhook")
+    ch_sub = ch.add_subparsers(dest="ch_action", required=True)
+    ch_add = ch_sub.add_parser("add", help="Add a channel")
+    ch_add.add_argument("type", choices=["telegram", "slack", "ntfy", "webhook"])
+    ch_add.add_argument("--chat", help="telegram: chat id allowed to receive and send commands")
+    ch_add.add_argument("--topic", help="ntfy: topic (min 12 chars, acts as a password)")
+    ch_add.add_argument("--server", help="ntfy: server (default https://ntfy.sh)")
+    ch_add.add_argument("--secret", help="Secret name holding the token / webhook URL")
+    ch_add.add_argument("--event", action="append", default=[], help="Only these events (repeatable)")
+    ch_sub.add_parser("list", help="Configured channels")
+    ch_sub.add_parser("test", help="Send a test message to every channel")
+    ch_rm = ch_sub.add_parser("rm", help="Remove channel #N")
+    ch_rm.add_argument("index", type=int)
+    remote = sub.add_parser("remote", help="Steer V/COMMAND from your phone (Telegram bot, long polling)")
+    remote.add_argument("kind", choices=["telegram"])
+    remote.add_argument("--once", action="store_true", help="Process pending commands and exit")
+    auto = sub.add_parser("autopilot", help="Keep working: vcmd wake every N minutes (+ Telegram remote)")
+    auto.add_argument("agents", nargs="*")
+    auto.add_argument("--every", default="30m", help="Interval, e.g. 30m, 2h (default 30m)")
+    auto.add_argument("--loop", action="store_true", help="Use the role loop for the active task")
+    auto.add_argument("--remote", action="store_true", help="Also answer Telegram commands")
+    auto.add_argument("--cycles", type=int, help="Stop after N cycles")
+    auto.add_argument("--budget", type=float)
+    auto.add_argument("--timeout", type=int, default=3600)
+    roles = sub.add_parser("roles", help="Which agent plays which role (plan, build, review, hard, chore, ...)")
+    roles_sub = roles.add_subparsers(dest="roles_action")
+    roles_set = roles_sub.add_parser("set", help="Assign agent(s) to a role")
+    roles_set.add_argument("role")
+    roles_set.add_argument("agents", nargs="+")
+    roles_rm = roles_sub.add_parser("rm", help="Remove a role")
+    roles_rm.add_argument("role")
     frame = sub.add_parser("frame", help="Compile a context frame to hand the task to any agent/model")
     frame.add_argument("--json", action="store_true", help="Machine-readable frame")
     frame.add_argument("--out", help="Write to this file instead of stdout")
@@ -133,6 +187,13 @@ def make_parser() -> argparse.ArgumentParser:
     agent.add_argument("--budget", type=float, help="Stop when known provider-reported spend on this task reaches USD")
     agent.add_argument("--health", action="store_true", help="Show agent circuit-breaker state")
     agent.add_argument("--reset-health", action="store_true", help="Close all agent circuits")
+    agent.add_argument("--role", help="Use the agents configured for this role (vcmd roles)")
+    sess = agent.add_mutually_exclusive_group()
+    sess.add_argument("--continue", dest="resume_last", action="store_true",
+                      help="Continue the agent's last session (full context) instead of a fresh one")
+    sess.add_argument("--resume", metavar="SESSION_ID", help="Continue this agent session id")
+    sess.add_argument("--fork", nargs="?", const="", metavar="SESSION_ID",
+                      help="Branch from the last (or given) session without changing it (Claude Code)")
     bench = sub.add_parser("bench", help="Benchmark arms (agent:plain vs agent:frame) on a task suite")
     bench.add_argument("suite", help="Suite directory containing suite.json")
     bench.add_argument("--arm", action="append", default=[], help="<agent>:plain or <agent>:frame (repeatable)")
@@ -151,7 +212,8 @@ def make_parser() -> argparse.ArgumentParser:
     hooks.add_argument("--settings", help="Hook file (default: .claude/settings.json or .codex/hooks.json)")
     hook = sub.add_parser("hook", help="Hook entry point called by the agent (reads JSON on stdin)")
     hook.add_argument("target", choices=HOOK_TARGETS)
-    hook.add_argument("event", choices=["session-start", "stop", "pre-tool", "pre-compact"])
+    hook.add_argument("event", choices=["session-start", "stop", "pre-tool", "pre-compact", "post-tool", "prompt",
+                                        "session-end"])
     queue = sub.add_parser("queue", help="Overnight task queue: verified tasks are committed, questions wait for you")
     queue_sub = queue.add_subparsers(dest="queue_action", required=True)
     q_add = queue_sub.add_parser("add", help="Add a task")
@@ -160,6 +222,7 @@ def make_parser() -> argparse.ArgumentParser:
     q_add.add_argument("--gate", action="append", default=[], help="Extra gate command for this task (repeatable)")
     q_add.add_argument("--after", action="append", default=[], help="Run only after this task id is done")
     q_add.add_argument("--priority", type=int, default=0)
+    q_add.add_argument("--role", help="Run with the agents of this role (e.g. hard -> strongest model, chore -> cheapest)")
     queue_sub.add_parser("list", help="Show queue state (same as report)")
     queue_sub.add_parser("report", help="Morning report: committed, failed, waiting for decisions")
     q_run = queue_sub.add_parser("run", help="Process the queue with the given agents (isolated attempts)")
@@ -212,7 +275,7 @@ def _workflow_command(args, root: Path, cfg: dict) -> int:
         return 0
     if args.command == "todo":
         if args.todo_action == "add":
-            item = w.add_todo(root, args.text)
+            item = w.add_todo(root, args.text + (f" (owner: {args.owner})" if args.owner else ""))
             print(f"V/  To-do {item['n']}: {item['text']}")
         elif args.todo_action == "done":
             item = w.complete_todo(root, args.ref)
@@ -275,6 +338,122 @@ def _workflow_command(args, root: Path, cfg: dict) -> int:
                       budget_usd=args.budget, timeout=args.timeout, jobs=args.jobs)
 
 
+def _parallel_command(args, root: Path, cfg: dict) -> int:
+    from . import sessions as se, channels as ch
+    shared = se.shared_root(root)
+    if args.command == "worktree":
+        if args.wt_action == "new":
+            w = se.create_worktree(shared, args.name, branch=args.branch, base=args.base,
+                                   path=Path(args.path) if args.path else None, goal=args.goal)
+            print(f"V/  Worktree {w['name']}: {w['path']} on {w['branch']} (base {w['base'][:10]})")
+            print(f"V/  Start a session there:  cd {w['path']} && claude     (or codex)")
+            print("V/  It has its own task/brief/ledger; sessions, messages and approvals are shared.")
+        elif args.wt_action == "list":
+            items = se.list_worktrees(shared)
+            if not items:
+                print("V/  No worktrees. Create one: vcmd worktree new <name>")
+            for w in items:
+                state = f"{len(w.get('changed', []))} changed file(s)" if w["present"] else "missing on disk"
+                print(f"{w['name']:16} {w['branch']:28} {state:22} {w['path']}")
+        elif args.wt_action == "conflicts":
+            items = se.conflicts(shared)
+            print("\n".join(f"{c['file']:50} {', '.join(c['worktrees'])}" for c in items)
+                  or "V/  No collisions: no file is changed in more than one worktree")
+            return 1 if items else 0
+        else:
+            w = se.remove_worktree(shared, args.name, force=args.force)
+            print(f"V/  Removed worktree {w['name']} ({w['path']}); branch {w['branch']} kept")
+        return 0
+    if args.command == "sessions":
+        items = se.list_sessions(shared)
+        if not items:
+            print("V/  No sessions yet. Install hooks (vcmd hooks install claude|codex) and start an agent.")
+        for x in items:
+            ago = int((__import__("time").time() - x.get("last_seen", 0)) // 60)
+            print(f"{x['name']:18} {x['agent']:12} {x['status']:7} {(x.get('branch') or '-'):24} "
+                  f"{ago:>4} min ago" + (f"   {x['unread']} unread" if x["unread"] else ""))
+        return 0
+    if args.command == "msg":
+        if args.msg_action == "send":
+            sender = args.sender or se.session_name(shared, Path.cwd())
+            if args.to == "developer":
+                sent = ch.notify(shared, "message", f"From {sender}: {args.text}")
+                print(f"V/  Sent to {sent} channel(s)" if sent else "V/  No channel reached (vcmd channel list)")
+                return 0 if sent else 1
+            m = se.send_message(shared, args.to, args.text, sender=sender)
+            print(f"V/  {m['id']} queued for {args.to}; delivered at its next tool call, prompt or stop")
+        else:
+            msgs = se.list_messages(shared)
+            for m in msgs:
+                got = ", ".join(m.get("delivered_to") or []) or "not delivered yet"
+                print(f"{m['id']}  {m['at_utc'][:16]}  {m['from']} -> {m['to']}: {m['text'][:120]}  [{got}]")
+            if not msgs:
+                print("V/  No messages")
+        return 0
+    if args.command == "channel":
+        if args.ch_action == "add":
+            c = ch.add_channel(root, args.type, chat_id=args.chat, topic=args.topic, server=args.server,
+                               secret=args.secret, events=args.event or None)
+            print(f"V/  Channel added: {c['type']}" + (f" (secret {c['secret']})" if c.get("secret") else ""))
+            if c.get("secret") and not ch._secret(c["secret"]):
+                print(f"V/  Store it: vcmd secret set {c['secret']}")
+        elif args.ch_action == "rm":
+            c = ch.remove_channel(root, args.index)
+            print(f"V/  Removed {c['type']}")
+        elif args.ch_action == "test":
+            items = ch.channels(cfg)
+            if not items:
+                raise ValueError("No channels configured (vcmd channel add ...)")
+            failed = 0
+            for i, c in enumerate(items, 1):
+                try:
+                    ch.send(root, c, "Test message: notifications from V/COMMAND reach you here.")
+                    print(f"V/  #{i} {c['type']}: sent")
+                except Exception as error:  # noqa: BLE001 - report every channel
+                    failed += 1
+                    print(f"V/  #{i} {c['type']}: FAILED ({type(error).__name__}: {str(error)[:120]})")
+            return 1 if failed else 0
+        else:
+            items = ch.channels(cfg)
+            for i, c in enumerate(items, 1):
+                detail = c.get("chat_id") or c.get("topic") or c.get("secret") or ""
+                print(f"{i}. {c['type']:9} {detail:24} events: {', '.join(c.get('events') or ['all'])}")
+            if not items:
+                print("V/  No channels. Example: vcmd channel add telegram --chat 123456789")
+        return 0
+    if args.command == "remote":
+        try:
+            return ch.telegram_remote(root, once=args.once)
+        except KeyboardInterrupt:
+            return 0
+    if args.command == "autopilot":
+        return ch.run_autopilot(root, args.agents, every_s=ch.parse_every(args.every), use_loop=args.loop,
+                                remote=args.remote, max_cycles=args.cycles, budget_usd=args.budget,
+                                timeout=args.timeout)
+    # roles
+    roles = dict(cfg.get("roles") or {})
+    if args.roles_action == "set":
+        from .adapters import agent_templates, resolve_agent
+        templates = agent_templates(cfg)
+        for a in args.agents:
+            resolve_agent(templates, a)
+        if args.role == "rounds":
+            raise ValueError("Use the config file for roles.rounds")
+        roles[args.role] = args.agents[0] if args.role in {"plan", "review"} else args.agents
+        cfg["roles"] = roles
+        save_config(root, cfg)
+    elif args.roles_action == "rm":
+        roles.pop(args.role, None)
+        cfg["roles"] = roles
+        save_config(root, cfg)
+    for role, value in roles.items():
+        print(f"{role:10} {', '.join(value) if isinstance(value, list) else value}")
+    if not roles:
+        print("V/  No roles. Example: vcmd roles set plan claude-opus; vcmd roles set build claude-sonnet codex;")
+        print("V/                     vcmd roles set review codex; vcmd roles set chore claude-haiku")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = make_parser().parse_args(argv)
     root = project_root()
@@ -288,6 +467,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"V/  Git          {shutil.which('git') or 'not found'}")
             print(f"V/  Repository   {root}")
             print(f"V/  Configuration {'present' if (root/'.vcommand'/'config.json').exists() else 'missing (vcmd init)'}")
+            print("\nV/  Tool access for agents (bash, search, git, tests, web/MCP, browser):")
+            tools = [("bash", "bash"), ("ripgrep", "rg"), ("git", "git"), ("node", "node"), ("npx", "npx"),
+                     ("python", "python3" if os.name != "nt" else "python"), ("docker", "docker"),
+                     ("claude", "claude"), ("codex", "codex"), ("opencode", "opencode"), ("ollama", "ollama")]
+            for label, exe in tools:
+                print(f"    {label:10} {shutil.which(exe) or '-'}")
+            mcp = [p for p in (root / ".mcp.json", root / ".codex" / "config.toml") if p.exists()]
+            print(f"    {'mcp':10} {', '.join(str(p.name) for p in mcp) or '- (no .mcp.json in the project)'}")
+            try:
+                import importlib.util
+                pw = importlib.util.find_spec("playwright") is not None
+            except (ImportError, ValueError):
+                pw = False
+            print(f"    {'playwright':10} {'python package installed' if pw else '- (npx playwright works if Node is present)'}")
             print("V/  Network isolation and model-provider integration are not implemented.")
             return 0
         if args.command == "demo":
@@ -304,8 +497,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.queue_action == "add":
                 import shlex
                 gates = [shlex.split(g, posix=os.name != "nt") for g in args.gate]
+                if args.role:
+                    q.role_agents(load_config(root), args.role)  # fail early on unknown roles
                 t = q.add_task(root, args.goal, focus=args.focus, gates=gates, after=args.after,
-                               priority=args.priority)
+                               priority=args.priority, role=args.role)
                 print(f"V/  Queued {t['id']}: {t['goal']}")
                 return 0
             if args.queue_action in {"list", "report"}:
@@ -488,13 +683,21 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.timeout < 1 or args.check_timeout < 1:
                 raise ValueError("Timeout must be a positive number of seconds")
+            agents = args.agents
+            if args.role:
+                from .queue import role_agents
+                agents = role_agents(cfg, args.role)
+            if not agents:
+                raise ValueError("Name the agents (vcmd agent claude codex) or use --role (vcmd roles)")
+            session = ("resume" if args.resume_last else f"resume:{args.resume}" if args.resume else
+                       None if args.fork is None else f"fork:{args.fork}" if args.fork else "fork")
             if args.race:
                 from .adapters import run_race
-                return run_race(root, args.agents, instruction=args.instruction, timeout=args.timeout,
+                return run_race(root, agents, instruction=args.instruction, timeout=args.timeout,
                                 check_timeout=args.check_timeout, budget_usd=args.budget)
-            return run_agents(root, args.agents, attempts=args.attempts, instruction=args.instruction,
+            return run_agents(root, agents, attempts=args.attempts, instruction=args.instruction,
                               timeout=args.timeout, check_timeout=args.check_timeout, isolate=args.isolate,
-                              budget_usd=args.budget)
+                              budget_usd=args.budget, session=session)
         if args.command == "task":
             if args.task_action == "start":
                 from .workflow import normalize_brief
@@ -553,6 +756,8 @@ def main(argv: list[str] | None = None) -> int:
                     who = f" [{e['agent']}]" if e.get("agent") else ""
                     print(f"{e['id']}  {e['created_at_utc']}{who}\n  tried:   {e['tried']}\n  failed:  {e['failure']}")
             return 0
+        if args.command in {"worktree", "sessions", "msg", "channel", "remote", "autopilot", "roles"}:
+            return _parallel_command(args, root, cfg)
         if args.command in {"decide", "decisions", "todo", "handoff", "approve", "guard", "loop", "wake"}:
             return _workflow_command(args, root, cfg)
         if args.command == "frame":

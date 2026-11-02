@@ -479,7 +479,7 @@ function vStudio(s) {
 
 function vAgents(s) {
   const kinds = agentKinds();
-  const used = s.agents.filter((a) => a.argv);
+  const used = s.agents.filter((a) => a.argv).sort((a, b) => (b.runs - a.runs) || (b.installed - a.installed));
   const cards = used.slice(0, 3).map((a, i) => {
     const kind = kinds[a.name], st = agentState(a);
     return `<section class="card ${COLOR[kind]} c4 rise" style="--i:${i}">
@@ -505,7 +505,8 @@ function vAgents(s) {
       <div class="code" style="margin-top:14px">"agents": { "mine": ["my-cli", "run", "{prompt}"] }</div>
       ${others.length ? `<p class="small" style="margin-top:12px">Also configured: ${others.map((a) => esc(a.name)).join(", ")}</p>` : ""}
     </section>
-    <section class="card c12 rise" id="agent-detail" style="--i:5"><h2>Commands</h2><div class="list">${used.map((a) => `<div class="item">
+    ${crewPanel(s, 5)}
+    <section class="card c12 rise" id="agent-detail" style="--i:9"><h2>Commands</h2><div class="list">${used.map((a) => `<div class="item">
       <div class="between"><b>${esc(a.name)}</b><span class="small muted">${a.parser ? "output parser: " + esc(a.parser) : "no output parser"}${a.installed === false ? " · not installed" : ""}</span></div>
       <div class="mono muted" style="margin-top:6px;word-break:break-all">${esc(a.argv)}</div></div>`).join("")}</div></section>
   </div>`;
@@ -602,6 +603,25 @@ function vMemory(s) {
         <span class="small muted" style="white-space:nowrap">${esc(e.agent || "")} · ${ago(e.created_at_utc)}</span></div></div>`).join("") || `<div class="empty">Nothing has failed yet.</div>`}</div></section>
     ${leaveBehind(s.workflow, 3)}
   </div>`;
+}
+
+function crewPanel(s, i) {
+  const p = s.workflow.parallel, roles = Object.entries(s.workflow.roles || {});
+  const names = [...new Set(p.sessions.filter((x) => x.status !== "ended").map((x) => x.name).concat(p.worktrees.map((w) => w.name)))];
+  const dot = (st) => `<span class="badge ${st === "active" ? "good" : ""}">${esc(st)}</span>`;
+  return `<section class="card violet c7 rise" style="--i:${i}"><div class="between"><div><div class="kicker">Live sessions</div><h2>${p.sessions.filter((x) => x.status === "active").length} active</h2></div>${character("advisor", { size: 110, state: p.sessions.some((x) => x.status === "active") ? "busy" : "" })}</div>
+      <div class="list" style="margin-top:10px">${p.sessions.slice(0, 6).map((x) => `<div class="item between"><div><b>${esc(x.name)}</b><div class="small">${esc(x.agent)}${x.branch ? " · " + esc(x.branch) : ""} · ${ago(new Date(x.last_seen * 1000).toISOString())}</div></div>
+        <span class="row" style="gap:6px">${x.unread ? `<span class="badge">${x.unread} unread</span>` : ""}${dot(x.status)}</span></div>`).join("") || `<div class="inset">Sessions appear once the hooks are installed: vcmd hooks install claude</div>`}</div>
+      <form id="send-msg" class="row" style="margin-top:14px;gap:8px;flex-wrap:wrap"><select class="field" name="to" style="width:auto;min-width:120px"><option value="all">all</option>${names.map((n) => `<option>${esc(n)}</option>`).join("")}</select>
+        <input class="field" name="text" placeholder="Short finding, warning or handoff" style="flex:1;min-width:160px" required><button class="btn small">Send</button></form></section>
+    <section class="card ${p.conflicts.length ? "coral " : ""}c5 rise" style="--i:${i + 1}"><div class="kicker">Worktrees</div><h2>${p.conflicts.length ? `${p.conflicts.length} file collision${p.conflicts.length > 1 ? "s" : ""}` : "No collisions"}</h2>
+      <div class="list" style="margin-top:8px">${p.worktrees.map((w) => `<div class="item between"><div><b>${esc(w.name)}</b><div class="small mono">${esc(w.branch)}</div></div><span class="small">${w.present ? (w.changed || []).length + " changed" : "missing"}</span></div>`).join("") || `<div class="inset">One worktree per live session: vcmd worktree new auth</div>`}
+        ${p.conflicts.slice(0, 4).map((c) => `<div class="inset mono small">${esc(c.file)} · ${c.worktrees.map(esc).join(", ")}</div>`).join("")}</div></section>
+    <section class="card yellow c6 rise" style="--i:${i + 2}"><div class="kicker">Roles</div><h2>One job per model</h2>
+      <div class="list" style="margin-top:8px">${roles.map(([r, a]) => `<div class="item between"><b>${esc(r)}</b><span class="mono small">${esc(Array.isArray(a) ? a.join(", ") : String(a))}</span></div>`).join("") || `<div class="inset small">vcmd roles set plan claude-opus · build claude-sonnet · review codex · chore claude-haiku</div>`}</div></section>
+    <section class="card c6 rise" style="--i:${i + 3}"><div class="between"><h2>Messages & channels</h2><span class="small muted">${p.channels.length ? p.channels.map((c) => esc(c.type)).join(" · ") : "no channels"}</span></div>
+      <div class="list" style="margin-top:8px">${p.messages.slice(0, 5).map((m) => `<div class="item"><div class="small muted">${esc(m.from)} → ${esc(m.to)} · ${ago(m.at_utc)}</div><p class="small">${esc(m.text)}</p></div>`).join("") || `<div class="empty">No messages yet. Sessions talk with vcmd msg send.</div>`}</div>
+      ${p.channels.length ? "" : `<div class="code" style="margin-top:12px">vcmd channel add telegram --chat &lt;id&gt;</div>`}</section>`;
 }
 
 function leaveBehind(wf, i) {
@@ -858,6 +878,8 @@ document.addEventListener("submit", async (e) => {
       toast(`Queued ${r.id}`); await load();
     } else if (f.classList.contains("answer")) {
       await api("/api/queue/answer", { id: f.dataset.id, text: data.text }); toast("Answer saved. The task is back in the queue."); await load();
+    } else if (f.id === "send-msg") {
+      await api("/api/msg", { to: data.to, text: data.text }); f.reset(); toast(`Message queued for ${data.to}`); await load();
     } else if (f.id === "add-todo") {
       await api("/api/todo/add", { text: data.text }); f.reset(); toast("Added to todo.md"); await load();
     } else if (f.id === "add-key") {

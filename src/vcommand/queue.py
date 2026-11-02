@@ -72,7 +72,7 @@ def _find(data: dict[str, Any], task_id: str) -> dict[str, Any]:
 
 
 def add_task(root: Path, goal: str, *, focus: list[str] | None = None, gates: list[list[str]] | None = None,
-             after: list[str] | None = None, priority: int = 0) -> dict[str, Any]:
+             after: list[str] | None = None, priority: int = 0, role: str | None = None) -> dict[str, Any]:
     load_config(root)
     goal = " ".join(goal.split())
     if not goal:
@@ -83,6 +83,8 @@ def add_task(root: Path, goal: str, *, focus: list[str] | None = None, gates: li
     task = {"id": "q-" + uuid.uuid4().hex[:6], "goal": goal, "focus": focus or [], "gates": gates or [],
             "after": after or [], "priority": priority, "status": "pending", "created_at_utc": utc_now(),
             "question": None, "options": [], "answers": [], "commit": None, "note": None, "finished_at_utc": None}
+    if role:
+        task["role"] = role
     data["tasks"].append(task)
     _save(root, data)
     return task
@@ -95,6 +97,10 @@ def ask(root: Path, task_id: str, question: str, options: list[str]) -> dict[str
         task.update(status="frozen", question=" ".join(question.split())[:500],
                     options=[" ".join(o.split())[:200] for o in options][:6])
         _save(root, data)
+    from .channels import notify
+    notify(root, "frozen", f"Queue task {task_id} waits for your decision:\n{task['question']}\n"
+                           + "".join(f"- {o}\n" for o in task["options"])
+                           + f"Reply: /answer {task_id} <decision>")
     return task
 
 
@@ -260,7 +266,7 @@ def run_queue(root: Path, agents: list[str], *, attempts: int | None = None, max
             head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
         buffer = io.StringIO()
         try:
-            code = run_agents(wroot, agents, attempts=attempts, instruction=QUEUE_INSTRUCTION, timeout=timeout,
+            code = run_agents(wroot, role_agents(load_config(root), task.get("role")) or agents, attempts=attempts, instruction=QUEUE_INSTRUCTION, timeout=timeout,
                               check_timeout=check_timeout, out=buffer if jobs > 1 else out, isolate=True,
                               budget_usd=budget_usd, extra_checks=task["gates"], stop_check=stop_check,
                               extra_env={TASK_ENV: task["id"], QUEUE_ROOT_ENV: str(root.resolve())},
@@ -290,6 +296,10 @@ def run_queue(root: Path, agents: list[str], *, attempts: int | None = None, max
         if jobs > 1:
             say(f"\n--- {task['id']} ---\n{buffer.getvalue().rstrip()}")
         say(f"V/  QUEUE      {task['id']} -> {status}" + (f" ({commit})" if commit else ""))
+        if status in {"done", "failed"}:
+            from .channels import notify
+            notify(root, "verified" if status == "done" else "failed",
+                   f"Queue task {task['id']} {status}: {task['goal']}" + (f"\nCommit: {commit}" if commit else ""))
 
     started = 0
     stop_note_shown = False
@@ -363,6 +373,16 @@ def render_report(data: dict[str, Any]) -> str:
     if len(lines) == 2:
         lines.append("Queue is empty. Add tasks: vcmd queue add \"<goal>\"")
     return "\n".join(lines)
+
+
+def role_agents(cfg: dict[str, Any], role: str | None) -> list[str]:
+    """Agents configured for a role (config "roles": {"hard": ["claude-opus"], "chore": "claude-haiku"})."""
+    if not role:
+        return []
+    value = (cfg.get("roles") or {}).get(role)
+    if value is None:
+        raise ValueError(f"Role '{role}' is not configured (vcmd roles set {role} <agent> [...])")
+    return [value] if isinstance(value, str) else [v for v in value if isinstance(v, str)]
 
 
 def current_queue_task() -> str | None:

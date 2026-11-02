@@ -352,6 +352,10 @@ def request_approval(root: Path, command: str, rule: str, *, agent: str | None =
                 "queue_task": queue_task, "status": "pending", "requested_at_utc": utc_now()}
         items.append(item)
         _save_approvals(root, items)
+    from .channels import notify
+    notify(root, "approval", f"{agent or 'An agent'} wants to run a {rule} command:\n{cmd[:500]}\n"
+                             f"Approve: /approve {item['id']}   Deny: /deny {item['id']}\n"
+                             f"(terminal: vcmd approve {item['id']})")
     return item
 
 
@@ -603,7 +607,15 @@ def _text_role(root: Path, agent: str, instruction: str, *, out: TextIO, timeout
     return (text.strip() if text and text.strip() else None), item
 
 
-def run_loop(root: Path, *, plan: str | None, build: list[str], review: str | None, rounds: int = 2,
+def run_loop(root: Path, **kw: Any) -> int:
+    """Role loop (see `_run_loop`); the outcome goes to the developer's channels."""
+    from .adapters import _notify_outcome
+    code = _run_loop(root, **kw)
+    _notify_outcome(root, code, "vcmd loop")
+    return code
+
+
+def _run_loop(root: Path, *, plan: str | None, build: list[str], review: str | None, rounds: int = 2,
              attempts: int | None = None, timeout: int = 3600, check_timeout: int = 600,
              budget_usd: float | None = None, out: TextIO | None = None) -> int:
     """brief -> plan -> build/test (gates) -> review -> handoff. Returns a CLI exit code.
@@ -640,7 +652,7 @@ def run_loop(root: Path, *, plan: str | None, build: list[str], review: str | No
             parts.append(f"REVIEW ROUND {rnd - 1} REQUESTED THESE CHANGES (required):\n{notes[:8000]}")
         print(f"\nV/  ROUND      {rnd}/{rounds}: build", file=out, flush=True)
         code = run_agents(root, build, attempts=attempts, instruction="\n\n".join(parts), timeout=timeout,
-                          check_timeout=check_timeout, budget_usd=budget_usd, out=out)
+                          check_timeout=check_timeout, budget_usd=budget_usd, out=out, notify_result=False)
         if code != 0:
             write_handoff(root)
             if code == STOPPED_FOR_HUMAN:

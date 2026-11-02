@@ -161,7 +161,17 @@ def _workflow_state(root: Path, cfg: dict[str, Any], frame: dict[str, Any]) -> d
         f = vc / name
         return f.read_text(encoding="utf-8", errors="replace")[:limit] if f.exists() else None
 
-    return {"brief": frame.get("brief"), "handoff": w.read_handoff(root), "todos": w.read_todos(root),
+    from . import sessions as se, channels as ch
+    shared = se.shared_root(root)
+    try:
+        worktrees = se.list_worktrees(shared)
+        clash = se.conflicts(shared) if worktrees else []
+    except (OSError, subprocess.SubprocessError):
+        worktrees, clash = [], []
+    parallel = {"sessions": se.list_sessions(shared)[:20], "worktrees": worktrees, "conflicts": clash,
+                "messages": list(reversed(se.list_messages(shared, 12))),
+                "channels": [{"type": c["type"], "events": c.get("events") or ["all"]} for c in ch.channels(cfg)]}
+    return {"parallel": parallel, "brief": frame.get("brief"), "handoff": w.read_handoff(root), "todos": w.read_todos(root),
             "decisions": list(reversed(w.read_decisions(root)[-30:])),
             "approvals": list(reversed(w.list_approvals(root)[-30:])),
             "roles": cfg.get("roles") or {}, "plan": head(w.PLAN_FILE), "review": head(w.REVIEW_FILE)}
@@ -282,6 +292,11 @@ class _Handler(BaseHTTPRequestHandler):
             from .workflow import decide_approval
             a = decide_approval(self.root, str(body.get("id", "")), bool(body.get("approve")))
             return {"ok": True, "id": a["id"], "status": a["status"]}
+        if path == "/api/msg":
+            from .sessions import send_message, shared_root
+            m = send_message(shared_root(self.root), str(body.get("to", "")), str(body.get("text", "")),
+                             sender="developer")
+            return {"ok": True, "id": m["id"]}
         if path == "/api/todo/add":
             from .workflow import add_todo
             return {"ok": True, **add_todo(self.root, str(body.get("text", "")))}

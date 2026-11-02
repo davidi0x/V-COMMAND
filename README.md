@@ -31,6 +31,7 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Benchmark:** `vcmd bench` compares `agent:plain` vs `agent:frame` on a task suite (see [benchmarks/](benchmarks/README.md)). Measured on 200 TypeScript tasks with Claude Haiku: no pass-rate benefit from the frame so far (200/200 both ways, also after a failed first attempt) at +5–7% cost — published as measured.
 - **Local backup and overnight queue:** `vcmd hw` recommends an Ollama model that fits your machine and registers it as a fallback agent; `vcmd queue` runs tasks overnight, commits only verified work and keeps questions for you.
 - **Persistent workflow for every agent** ([docs/WORKFLOW.md](docs/WORKFLOW.md)): five-field operating brief (`vcmd task start --scope --constraint --done --leave-behind`); `handoff.md` (goal, state, files touched, open issues, next step) rewritten after every run, hook stop and compaction; `vcmd decide` / `vcmd todo`; deploys, publishing, database writes and bulk deletes need `vcmd approve` (PreToolUse hook + stream guard); `vcmd loop` runs planner → builder(s) → reviewer with the gates as judge; `vcmd wake` + `vcmd schedule cron|systemd|github` continue the work from a trigger.
+- **Parallel sessions and reach** ([docs/WORKFLOW.md](docs/WORKFLOW.md#7-worktrees-not-chaos-one-isolated-workspace-per-live-session)): `vcmd worktree new <name>` gives every live session its own worktree with collision warnings; `vcmd sessions` / `vcmd msg send` let sessions talk; `vcmd agent --continue / --resume / --fork`; `vcmd roles` + `queue add --role`; Telegram / Slack / ntfy / webhook notifications, `vcmd remote telegram` to approve and steer from your phone, `vcmd autopilot` to keep waking the work.
 - No API dependency, no background daemon, no telemetry, no cloud account.
 - Python 3.10+, Windows/macOS/Linux intended; tested in CI matrix.
 
@@ -112,6 +113,9 @@ vcmd loop --plan claude --build claude --build codex --review codex   # plan -> 
 vcmd approve                     # risky commands agents asked to run (deploy, DB write, bulk delete)
 vcmd handoff                     # 1 goal  2 state  3 files touched  4 open issues  5 next step
 vcmd schedule github claude --loop --write   # nightly / webhook wake-up; verified work lands on a branch
+vcmd worktree new auth && vcmd worktree new ui   # one session per worktree; vcmd worktree conflicts
+vcmd msg send ui "Auth flow updated, please review refresh logic"
+vcmd channel add telegram --chat 123456789 && vcmd autopilot claude --every 30m --remote
 ```
 
 ### Overnight queue
@@ -169,6 +173,9 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | Operating brief, handoff.md / decisions.md / todo.md, diff in evidence | Implemented (`vcmd task brief`, `vcmd handoff`, `vcmd decide`, `vcmd todo`) |
 | Approval for deploy / publish / DB write / bulk delete | Implemented (pattern-based PreToolUse hook + stream guard; not a sandbox) |
 | Role loop (plan → build → review) and trigger wake-up | Implemented (`vcmd loop`, `vcmd wake`, `vcmd schedule`) |
+| Worktree per session, collision warnings, session registry and messages | Implemented (`vcmd worktree`, `vcmd sessions`, `vcmd msg`) |
+| Continue / resume / fork agent sessions | Implemented (Claude Code; Codex resume only) |
+| Channels and remote control | Implemented (Telegram, Slack, ntfy, webhook; Telegram commands; `vcmd autopilot`) — real services not tested from CI |
 | Advanced TUI and IDE companions | Planned |
 
 ## Project principles

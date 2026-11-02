@@ -153,6 +153,118 @@ Nothing is installed silently: templates are printed unless you pass `--write`.
   the frame. When a session drifts, end it and start a new one: nothing is lost.
 * `vcmd handoff --write` makes a checkpoint by hand.
 
+## 7. Worktrees, not chaos: one isolated workspace per live session
+
+```bash
+vcmd worktree new arch --goal "Design the session bridge"   # ../<repo>-arch on branch vcmd/arch
+vcmd worktree new ui                                          # ../<repo>-ui   on branch vcmd/ui
+cd ../<repo>-arch && claude          # one session per worktree (or codex)
+vcmd worktree list                   # branches and changed files
+vcmd worktree conflicts              # files changed in more than one worktree (exit 1 if any)
+vcmd worktree rm ui                  # refuses while there are uncommitted changes (--force)
+```
+
+Each worktree gets its own V/COMMAND state (same checks, agents and guardrails; its own task,
+brief and ledger) and the agent hooks. Sessions, messages, approvals and channels stay shared in
+the main repository. When a session edits a file another worktree already changed, the
+`PostToolUse` hook tells it right away (once per file) — parallel work only stays clean when files
+stop colliding.
+
+## 8. Sessions can talk
+
+```bash
+vcmd sessions                                   # name, agent, active/idle/ended, branch, unread messages
+vcmd msg send ui "Auth flow updated. Please review the refresh logic."
+vcmd msg send all "Freeze merges for 10 minutes"
+vcmd msg send developer "Need a decision on the schema"   # goes to your channels (phone)
+vcmd msg list
+```
+
+Hooked sessions register themselves (worktree name, otherwise `<agent>-<id>`). A message reaches a
+live session after its next tool call (`PostToolUse`), with the next prompt (`UserPromptSubmit`),
+at `SessionStart`, or at `Stop` (the stop is held once so the session can act on it). Wrapped agents
+get messages for them in their next prompt. Agents send messages themselves with the same command.
+
+Live check (Claude Haiku, Claude Code 2.1.316, hooks installed in a worktree): a message queued
+before the session started arrived at `SessionStart`; a message sent 12 s into the session arrived
+through a later hook while the agent was working; the session showed up as `arch` and was marked
+`ended` by `SessionEnd`.
+
+## 9. Continue, resume, fork
+
+The default stays a **fresh session per attempt** (no context rot; state comes from the frame and
+the handoff). When full context matters:
+
+```bash
+vcmd agent claude --continue           # continue this agent's last recorded session
+vcmd agent claude --resume <id>        # a specific session (ids are in the evidence: agent_session)
+vcmd agent claude --fork               # branch from the last session without changing it (Claude Code)
+```
+
+Claude Code uses `--resume` (`--fork-session` for forks); Codex uses `codex exec resume <id>`
+(no fork); other agents can declare `"resume"` / `"fork"` argv templates with `{session}`.
+Messages are for lightweight updates; resume when the full conversation matters.
+
+Live check (Claude Haiku): a secret word given only in the first attempt's instruction was written
+correctly by the `--continue` attempt; a fresh attempt answered `UNKNOWN`. Found and fixed in that
+run: launched agents inherited the parent Claude Code session id (`CLAUDE_CODE_SESSION_ID`,
+`CLAUDE_CODE_REMOTE_SESSION_ID`) and wrote into the parent's session environment; V/COMMAND now
+strips them, so every agent gets its own session.
+
+## 10. One job per model
+
+```bash
+vcmd roles set plan claude-opus          # presets: claude-opus, claude-sonnet, claude-haiku (Claude Code aliases)
+vcmd roles set build claude-sonnet codex
+vcmd roles set review codex
+vcmd roles set hard claude-opus          # any role name works
+vcmd roles set chore claude-haiku        # do not burn the best reasoning model on chores
+vcmd queue add "Design the session bridge" --role hard
+vcmd queue add "Rename the config keys" --role chore
+vcmd agent --role build
+```
+
+`vcmd loop` uses `plan` / `build` / `review`; queue tasks with `--role` run with that role's agents.
+The assignment is yours: V/COMMAND does not claim which model is best at what.
+
+## 11. Reach the developer anywhere, steer from anywhere
+
+```bash
+vcmd secret set TELEGRAM_BOT_TOKEN                 # from @BotFather; never passed to agents
+vcmd channel add telegram --chat 123456789         # your chat id with the bot
+vcmd secret set SLACK_WEBHOOK_URL && vcmd channel add slack
+vcmd channel add ntfy --topic vcmd-7f3k2-myproject # ntfy.sh or self-hosted; the topic is the password
+vcmd channel add webhook --secret MY_HOOK_URL      # Discord, Teams, n8n, your service
+vcmd channel test
+```
+
+Notifications: approval needed (with `/approve <id>`), task frozen with its question, verified,
+failed, context rotation, and `vcmd msg send developer`. Limit a channel with `--event approval`.
+
+Remote control without a public endpoint (Telegram long polling; only the configured chat ids are
+obeyed, everything else is ignored and logged):
+
+```bash
+vcmd remote telegram
+# in Telegram: /status  /approvals  /approve apr-…  /deny apr-…  /queue <goal>
+#              /answer q-… <decision>  /sessions  /msg <session|all> <text>  /todo <text>  /wake [agents]  /handoff
+```
+
+Keep it running without a terminal session of yours:
+
+```bash
+vcmd autopilot claude codex --every 30m --remote   # wake every 30 min + Telegram commands, until Ctrl+C
+```
+
+Each cycle runs `vcmd wake` (queue first, then the active task); a failing or frozen cycle is sent
+to your channels and the pilot keeps going. Run it under `tmux`, `systemd` (see `vcmd schedule
+systemd`) or on a small server. Channel tokens (`TELEGRAM_BOT_TOKEN`, `SLACK_WEBHOOK_URL`) are never
+put in an agent's environment — an agent that could read them could approve its own risky commands.
+
+Tested with a local fake Telegram API (approval message, `/approve` from the allowed chat, a
+stranger's `/approve` ignored, `/queue`, offset handling). Not tested against the real Telegram,
+Slack or ntfy services from this environment.
+
 ## Start smaller
 
 One focused task, a five-field brief, the gates that define done, the hooks installed, and a

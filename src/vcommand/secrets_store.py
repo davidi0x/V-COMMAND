@@ -33,7 +33,12 @@ KNOWN = {
     "GEMINI_API_KEY": "Google Gemini",
     "DEEPSEEK_API_KEY": "DeepSeek",
     "GROQ_API_KEY": "Groq",
+    "TELEGRAM_BOT_TOKEN": "Telegram bot for notifications and remote commands (never passed to agents)",
+    "SLACK_WEBHOOK_URL": "Slack incoming webhook for notifications (never passed to agents)",
 }
+# Channel credentials stay with V/COMMAND: an agent that can read the bot token could approve its own
+# risky commands through the remote.
+NOT_FOR_AGENTS = {"TELEGRAM_BOT_TOKEN", "SLACK_WEBHOOK_URL"}
 _LOCK = threading.Lock()
 
 
@@ -269,7 +274,7 @@ def secrets_env() -> dict[str, str]:
     b = backend()
     env = {}
     for name in b.names():
-        if name in os.environ:
+        if name in os.environ or name in NOT_FOR_AGENTS or name.startswith("VCMD_CHANNEL_"):
             continue
         value = b.get(name)
         if value:

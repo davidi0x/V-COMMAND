@@ -26,6 +26,8 @@ class _Base:
     result_subtype: str | None = None
     # the agent's final answer (used by text roles: planner, reviewer); never persisted
     final_text: str | None = None
+    # the agent's own session / thread id, for `vcmd agent --continue / --fork` (claude --resume, codex exec resume)
+    session_id: str | None = None
     # set when the guardrail stopped a risky shell command: {"command", "rule", "approval"}
     guardrail_hit: dict[str, Any] | None = None
 
@@ -83,6 +85,8 @@ class ClaudeJson(_Base):
             self._say(data["result"])
             self.final_text = data["result"]
         self.result_subtype = data.get("subtype") if isinstance(data.get("subtype"), str) else None
+        if isinstance(data.get("session_id"), str):
+            self.session_id = data["session_id"]
         return _claude_cost(data)
 
 
@@ -108,6 +112,8 @@ class ClaudeStream(_Base):
             return None
         if not isinstance(event, dict):
             return None
+        if isinstance(event.get("session_id"), str) and event.get("type") in {"system", "result"}:
+            self.session_id = event["session_id"]
         if event.get("type") == "result":
             self.cost = _claude_cost(event)
             if isinstance(event.get("result"), str):
@@ -161,6 +167,8 @@ class CodexJsonl(_Base):
             return None
         if not isinstance(event, dict):
             return None
+        if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
+            self.session_id = event["thread_id"]
         usage = event.get("usage") or (event.get("info") or {}).get("last_token_usage")
         if isinstance(usage, dict) and event.get("type") in {"turn.completed", "token_count", None}:
             for key in self.usage:

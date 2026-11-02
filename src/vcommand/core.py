@@ -288,6 +288,9 @@ def run_task(root: Path, argv: list[str], *, timeout: int = 600, check_timeout: 
             "Mode is a saved preference only; it does not enforce network isolation or route models."
         ]
     }
+    agent_session = getattr(parser, "session_id", None) if not external and parser is not None else None
+    if agent_session:
+        evidence["agent_session"] = agent_session
     if not checks_enabled:
         evidence["text_role"] = True  # planner / reviewer answer: no gates by design
     guard_hit = getattr(parser, "guardrail_hit", None) if not external and parser is not None else None
