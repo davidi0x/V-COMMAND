@@ -32,7 +32,7 @@ class Repo(unittest.TestCase):
         git(self.root, "config", "user.email", "t@e.com")
         git(self.root, "config", "user.name", "t")
         (self.root / ".gitignore").write_text(".vcommand/\n")
-        (self.root / "a.py").write_text("x = 1\n")
+        (self.root / "a.py").write_bytes(b"x = 1\n")  # bytes: no CRLF translation on Windows
         (self.root / "sub").mkdir()
         (self.root / "sub" / "b.txt").write_text("hello\n")
         git(self.root, "add", ".")
