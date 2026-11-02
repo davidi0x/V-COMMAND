@@ -1,0 +1,84 @@
+{
+  "name": "multi6",
+  "description": "Six multi-file Python tasks with explicit goals (3-4 files each): a field through model, totals, renderer and CLI; a rename with a deprecation shim and all callers; a TTL cache with a clock; layered configuration; an event bus wired into two services; a three-module CSV pipeline.",
+  "tasks": [
+    {
+      "id": "invoice-tax",
+      "dir": "invoice-tax",
+      "goal": "Add per-item tax to the invoice code. `Item` gets `tax_rate` (default 0.0, e.g. 0.2 = 20%) with methods `tax()` (rounded to 2 decimals) and `gross()` (subtotal + tax); `Invoice.total()` is the sum of gross amounts and `Invoice.tax_total()` the sum of taxes; `render()` appends ` + tax 0.40` to an item line only when its rate is above 0 and prints a `TAX x.xx` line before `TOTAL` only when the tax total is above 0; the CLI accepts an optional 4th field `name:price:qty:rate`. Items without tax must behave exactly as before.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_invoice.py"
+        ]
+      ]
+    },
+    {
+      "id": "rename-api",
+      "dir": "rename-api",
+      "goal": "Rename `fetch_user` to `get_user` in users.py and update every caller in the package. Keep `fetch_user` as a deprecated alias that emits a `DeprecationWarning` (message must mention `get_user`) and returns the same result. No code in the package other than that alias may trigger the warning.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_rename.py"
+        ]
+      ]
+    },
+    {
+      "id": "ttl-cache",
+      "dir": "ttl-cache",
+      "goal": "Add a TTL cache decorator `cached(ttl)` to cache.py and use it in services.py. Keys are the call arguments (positional and keyword calls with the same values share an entry); entries expire after `ttl` seconds measured by a replaceable clock (`cache.set_clock(fn)`, default `time.monotonic`); exceptions are never cached; `cache.clear_cache()` empties every cache. Apply `@cached(60)` to `services.get_price` and `@cached(5)` to `services.get_stock`; the functions must keep their names and docstrings.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_cache.py"
+        ]
+      ]
+    },
+    {
+      "id": "config-layers",
+      "dir": "config-layers",
+      "goal": "Implement `load_config(path=None, env=None)` in config.py and make app.py use it. Result = DEFAULTS, deep-merged with the JSON file at `path` (if given), then with environment variables named `APP_<SECTION>__<KEY>` (case-insensitive, `__` separates nesting, e.g. `APP_DB__PORT=5433`), where env is a dict (default `os.environ`). Env values are coerced to the type of the default (int, float, bool: true/false/1/0/yes/no, str); a value that cannot be coerced, or an `APP_` variable that matches no default key, raises `errors.ConfigError`. `app.dsn(cfg=None)` must build `host:port/name` from the loaded configuration (loading it when `cfg` is None).",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_config.py"
+        ]
+      ]
+    },
+    {
+      "id": "event-bus",
+      "dir": "event-bus",
+      "goal": "Implement `EventBus` in bus.py: `subscribe(topic, handler, priority=0, with_topic=False)` (topic may end in `.*` to match every topic with that prefix, e.g. `order.*`), `unsubscribe(topic, handler)`, and `publish(topic, payload)` which calls matching handlers highest priority first (equal priority: subscription order) as `handler(payload)` \u2014 or `handler(topic, payload)` when subscribed with `with_topic=True` \u2014 and returns the list of exceptions the handlers raised; one failing handler must not stop the others, and a handler may unsubscribe itself while being called. Then make `OrderService.place(order)` publish `order.placed` with a copy of the stored order (after storing it) and give `AuditLog` an `attach(bus)` method that records `(topic, payload)` for every `order.*` event.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_bus.py"
+        ]
+      ]
+    },
+    {
+      "id": "csv-report",
+      "dir": "csv-report",
+      "goal": "Implement the CSV pipeline across three modules. parser.py `parse(text)` -> list of dicts keyed by the header row, supporting quoted fields with commas, doubled quotes (`\"\"`) and newlines inside quotes, CRLF or LF line ends, and ignoring a trailing blank line; a row with the wrong number of fields raises `ValueError` naming the 1-based line. stats.py `summarize(rows, key, value)` -> dict mapping each key to `{\"count\": n, \"sum\": s, \"avg\": a}` over the numeric `value` column, where blank values are skipped (not counted) and a non-numeric value raises `ValueError`; avg is rounded to 2 decimals and is `None` when nothing was counted. report.py `render(summary)` -> text table with a header `key  count  sum  avg`, rows sorted by sum descending then key ascending, numbers right-aligned in columns sized to the widest cell, sums with 2 decimals, avg `-` when None.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_report.py"
+        ]
+      ]
+    }
+  ]
+}

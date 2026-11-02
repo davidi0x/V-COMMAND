@@ -84,10 +84,18 @@ class ClaudeJson(_Base):
         if isinstance(data.get("result"), str):
             self._say(data["result"])
             self.final_text = data["result"]
-        self.result_subtype = data.get("subtype") if isinstance(data.get("subtype"), str) else None
+        self.result_subtype = _subtype(data)
         if isinstance(data.get("session_id"), str):
             self.session_id = data["session_id"]
         return _claude_cost(data)
+
+
+def _subtype(data: dict[str, Any]) -> str | None:
+    """How the agent says it ended. `is_error` wins over a "success" subtype: an API error (overload, auth,
+    quota) is not a finished task and must be classified as an infrastructure problem, not as a task failure."""
+    if data.get("is_error") is True:
+        return "api_error"
+    return data.get("subtype") if isinstance(data.get("subtype"), str) else None
 
 
 def _claude_cost(data: dict[str, Any]) -> dict[str, Any]:
@@ -126,7 +134,7 @@ class ClaudeStream(_Base):
             self.cost = _claude_cost(event)
             if isinstance(event.get("result"), str):
                 self.final_text = event["result"]
-            self.result_subtype = event.get("subtype") if isinstance(event.get("subtype"), str) else None
+            self.result_subtype = _subtype(event)
             return None
         if event.get("type") != "assistant":
             return None

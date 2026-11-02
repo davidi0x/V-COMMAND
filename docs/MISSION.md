@@ -61,7 +61,22 @@ repo's README; 2 repeats; live Claude Code):
   want the questions, the plan and the brief in front of you before spending money; leave it off for
   routine tasks. Mission works without it.
 * On these easy, self-contained tasks the cheap model was both cheaper (~16x per verified task) and at least
-  as good — the case for routing by difficulty. Harder, multi-file work has not been measured yet.
+  as good — the case for routing by difficulty.
+
+Multi-file tasks (`benchmarks/results/multi6-haiku-sonnet-opus.md`: six tasks touching 3–4 files each, explicit
+goals, 2 repeats, context frame):
+
+| Model | Pass rate | Cost per verified task |
+|---|---|---|
+| haiku | 12/12 | $0.011 |
+| sonnet | 12/12 | $0.116 |
+| opus | 12/12 | $0.287 |
+
+All three solved everything, so the suite cannot rank them; what it does show is that for multi-file work of
+this kind the cheapest model passed the gates at ~10–25x lower cost. It does **not** show that cheaper models
+are as good in general: tasks that separate the models (large codebases, ambiguous design, hard debugging)
+have not been measured. The practical rule it supports: start with the cheapest agent, let the gates decide,
+escalate on failure (that is what `vcmd mission` failover and `vcmd agent a b c` do).
 
 ## Limits
 

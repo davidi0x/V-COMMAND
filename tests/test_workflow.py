@@ -297,6 +297,17 @@ class LoopAndWakeTests(Base):
             code = w.run_loop(self.root, plan=None, build=["builder"], review="reviewer", rounds=1, out=io.StringIO())
         self.assertEqual(code, 1)
 
+    def test_api_error_result_is_not_a_finished_task(self):
+        from vcommand.adapters import provider_failure_reason
+        p = make_parser("claude-stream", io.StringIO(), {})
+        p.feed(json.dumps({"type": "result", "subtype": "success", "is_error": True, "result": "API Error: overloaded"}))
+        self.assertEqual(p.result_subtype, "api_error")
+        item = {"action": {"exit_code": 1}, "agent_result": p.result_subtype, "git_status_before": [], "git_status_after": []}
+        self.assertIsNotNone(provider_failure_reason(item))  # retried / failed over, not counted as a wrong answer
+        ok = make_parser("claude-stream", io.StringIO(), {})
+        ok.feed(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "done"}))
+        self.assertEqual(ok.result_subtype, "success")
+
     def test_parse_verdict(self):
         self.assertEqual(w.parse_verdict("x\n**VERDICT: approve**"), "APPROVE")
         self.assertEqual(w.parse_verdict("VERDICT: CHANGES\n- a"), "CHANGES")
