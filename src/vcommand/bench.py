@@ -44,7 +44,8 @@ from .adapters import (PROMPT_PLACEHOLDER, agent_templates, agent_env, build_pro
 # persist mark the run `infra_error` and exclude it from pass rates.
 INFRA_BACKOFF_S = (30, 90)
 
-ARM_KINDS = ("plain", "frame")
+ARM_KINDS = ("plain", "frame")          # arms usable in A>B handoff comparisons
+KINDS = ("plain", "frame", "enhanced")  # arms for `agent:kind`; enhanced = the mission enhancer writes the brief first
 PASS = "verified_by_configured_checks"
 
 
@@ -73,8 +74,8 @@ def load_suite(path: Path) -> dict[str, Any]:
 def parse_arm(spec: str) -> tuple[str, str]:
     agent, _, kind = spec.partition(":")
     kind = kind or "frame"
-    if not agent or kind not in ARM_KINDS:
-        raise ValueError(f"Arm must be <agent>:plain or <agent>:frame, got {spec!r}")
+    if not agent or kind not in KINDS:
+        raise ValueError(f"Arm must be <agent>:plain, <agent>:frame or <agent>:enhanced, got {spec!r}")
     return agent, kind
 
 
@@ -124,9 +125,35 @@ def _setup(suite: dict[str, Any], task: dict[str, Any], dest: Path) -> list[list
     return gates
 
 
+def _enhanced_prompt(work: Path, task: dict[str, Any], agent: str, templates: dict[str, Any], *,
+                     timeout: int) -> tuple[str, list[float]]:
+    """The mission enhancer (same agent, read-only) writes brief + assumptions + steps; the worker gets them with
+    the context frame. If the enhancer fails, the worker gets the plain prompt (and the failure is a cost, not a win)."""
+    from .mission import ENHANCER_INSTRUCTION, parse_plan
+    from .workflow import _text_role, normalize_brief
+    text, e_item = _text_role(work, agent, ENHANCER_INSTRUCTION + task["goal"], out=_NullLog(), timeout=timeout,
+                              label="enhance", quiet=True, templates=templates)
+    cost = [e_item["cost"]["amount"]] if e_item["cost"]["amount"] is not None else []
+    plan = parse_plan(text or "")
+    if plan is None or not plan["steps"]:
+        return plain_prompt(task, task["gates"]), cost
+    b = plan["brief"]
+    constraints = list(b.get("constraints") or []) + [f"Assumption: {a}" for a in plan["assumptions"]]
+    start_task(work, task["goal"], normalize_brief(b.get("scope"), constraints[:12], b.get("done"), None))
+    steps = "\n".join(f"{i}. ({s['difficulty']}) {s['title']}: {s['detail']}" for i, s in enumerate(plan["steps"], 1))
+    note = ("Plan prepared for this task (follow it; the acceptance gates decide whether it is done):\n" + steps
+            + "\nThere is no human to ask: where the goal is ambiguous, apply the stated assumptions and the "
+              "repository's own conventions (README.md, neighbouring modules).")
+    return build_prompt(build_frame(work), note), cost
+
+
 def _attempt(work: Path, task: dict[str, Any], agent: str, kind: str, templates: dict[str, Any], *,
              timeout: int, check_timeout: int) -> dict[str, Any]:
-    prompt = build_prompt(build_frame(work)) if kind == "frame" else plain_prompt(task, task["gates"])
+    enhancer_cost: list[float] = []
+    if kind == "enhanced":
+        prompt, enhancer_cost = _enhanced_prompt(work, task, agent, templates, timeout=timeout)
+    else:
+        prompt = build_prompt(build_frame(work)) if kind == "frame" else plain_prompt(task, task["gates"])
     spec = resolve_agent(templates, agent)
     argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
     shown = [f"<{kind} prompt>" if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
@@ -146,8 +173,12 @@ def _attempt(work: Path, task: dict[str, Any], agent: str, kind: str, templates:
         infra = None if item["status"] == PASS else provider_failure_reason(item)
         if not infra:
             break
+    spent_all = spent + enhancer_cost  # the enhancer's cost belongs to the arm that uses it
+    if kind == "enhanced" and not enhancer_cost:
+        spent_all = []  # enhancer cost unknown: the arm's cost is unknown, never silently lower
     return {"item": item, "passed": item["status"] == PASS, "wall_s": wall,
-            "cost_usd": round(sum(spent), 6) if spent else item["cost"]["amount"],
+            "cost_usd": (round(sum(spent_all), 6) if spent_all else None) if kind == "enhanced"
+            else (round(sum(spent), 6) if spent else item["cost"]["amount"]),
             "cost_source": item["cost"]["source"], "prompt_chars": len(prompt), "infra_error": infra}
 
 
@@ -299,7 +330,10 @@ def summarize(results: list[dict[str, Any]], suite_name: str, arm_order: list[st
                      "known_cost_usd": round(sum(known), 4) if known else None,
                      "runs_with_unknown_cost": len(all_rows) - len(known),
                      "infra_errors": len(all_rows) - len(rows),
-                     "median_prompt_chars": int(median(r["prompt_chars"] for r in rows)) if rows else None}
+                     "median_prompt_chars": int(median(r["prompt_chars"] for r in rows)) if rows else None,
+                     # only when every run's cost is known: money spent per task the gates actually verified
+                     "cost_per_verified_usd": (round(sum(known) / passed, 4)
+                                               if passed and known and len(known) == len(all_rows) else None)}
         if handoff:
             arms[arm].update(first_attempt_passed=sum(r["first_attempt_passed"] for r in handoff),
                              second_attempts=sum(r["attempts"] == 2 for r in handoff),
@@ -333,12 +367,13 @@ def summarize(results: list[dict[str, Any]], suite_name: str, arm_order: list[st
 def render_report(summary: dict[str, Any]) -> str:
     lines = [f"# V/COMMAND benchmark — {summary['suite']}", "",
              f"{summary['tasks']} task(s), {summary['results']} run(s).", "",
-             "| Arm | Passed | Pass rate | Wilson 95% | Median wall (s) | Known cost (USD) | Unknown-cost runs | Median prompt chars | Infra errors (excluded) |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             "| Arm | Passed | Pass rate | Wilson 95% | Median wall (s) | Known cost (USD) | Cost per verified task (USD) | Unknown-cost runs | Median prompt chars | Infra errors (excluded) |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
     for arm, s in summary["arms"].items():
         cost = "unknown" if s["known_cost_usd"] is None else f"{s['known_cost_usd']:.4f}"
         lines.append(f"| {arm} | {s['passed']}/{s['runs']} | {s['pass_rate']:.0%} | "
                      f"{s['wilson95'][0]:.0%}–{s['wilson95'][1]:.0%} | {s['median_wall_s']} | {cost} | "
+                     f"{'n/a' if s.get('cost_per_verified_usd') is None else format(s['cost_per_verified_usd'], '.4f')} | "
                      f"{s['runs_with_unknown_cost']} | {s['median_prompt_chars']} | {s.get('infra_errors', 0)} |")
     handoff = {a: s for a, s in summary["arms"].items() if "rescued" in s}
     if handoff:

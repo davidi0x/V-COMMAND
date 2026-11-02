@@ -118,11 +118,11 @@ def parse_plan(text: str) -> dict[str, Any] | None:
             steps.append({"title": _line(raw["title"], 160), "difficulty": diff if diff in UNITS else "medium",
                           "detail": _line(raw.get("detail", ""), 600)})
     return {
-        "brief": {"scope": _line(brief["scope"]) if brief.get("scope") else None,
-                  "constraints": [_line(c) for c in brief.get("constraints") or [] if str(c).strip()][:8],
-                  "done": _line(brief["done"]) if brief.get("done") else None},
-        "questions": [_line(q) for q in data.get("questions") or [] if str(q).strip()][:5],
-        "assumptions": [_line(a) for a in data.get("assumptions") or [] if str(a).strip()][:8],
+        "brief": {"scope": _line(brief["scope"], 500) if brief.get("scope") else None,
+                  "constraints": [_line(c, 300) for c in brief.get("constraints") or [] if str(c).strip()][:8],
+                  "done": _line(brief["done"], 600) if brief.get("done") else None},
+        "questions": [_line(q, 400) for q in data.get("questions") or [] if str(q).strip()][:5],
+        "assumptions": [_line(a, 400) for a in data.get("assumptions") or [] if str(a).strip()][:8],
         "steps": steps[:MAX_STEPS],
     }
 
@@ -146,6 +146,10 @@ def new_mission(root: Path, goal: str, *, agents: list[str] | None = None, enhan
         resolve_agent(templates, a)
     plan = None
     enhancer_note = None
+    previous = load_mission(root)
+    if previous and previous.get("status") == "running":
+        raise ValueError("A mission is running; wait for it or stop it first")
+    _clear_own_task(root, previous)  # a finished mission's task must not colour the next plan
     if enhancer:
         from .workflow import _text_role
         for attempt in (1, 2):  # models occasionally answer in prose: one retry with the format restated
@@ -453,9 +457,21 @@ def edit_step(root: Path, n: int, *, title: str | None = None, difficulty: str |
     return m
 
 
+def _clear_own_task(root: Path, m: dict[str, Any] | None) -> None:
+    """The task a mission created goes away with it: a stale task would mislead the next enhancer."""
+    from .core import current_task_id
+    from .state import clear_task
+    if m and m.get("task_id") and m["task_id"] == current_task_id(root):
+        clear_task(root)
+
+
 def discard(root: Path) -> bool:
     path = _path(root)
     if path.exists():
+        m = load_mission(root)
+        if m and m.get("status") == "running":
+            raise ValueError("The mission is running; stop it first")
+        _clear_own_task(root, m)
         path.unlink()
         return True
     return False

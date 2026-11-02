@@ -1,2 +1,2 @@
-"""V/COMMAND: terminal-first execution evidence for coding agents."""
-__version__ = "0.1.0a1"
+"""V/COMMAND: mission control for AI coding agents."""
+__version__ = "0.2.0a1"

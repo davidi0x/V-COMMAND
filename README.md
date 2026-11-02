@@ -1,20 +1,35 @@
 # V/COMMAND
 
-**Your agents. Under control.**
+**Mission control for AI coding agents.** Say the goal once, see the plan and its cost range, tune who does what, approve — then it runs, and *done* means the checks passed.
 
-> Open-source, terminal-first execution evidence for AI coding agents.
->
-> **Alpha:** real execution, verification checks, local evidence, and task handoff between agents (Claude Code, Codex CLI). No model routing or provider cost tracking yet.
+> Free, MIT, local-first. Works with Claude Code, Codex CLI, OpenCode, local models and any CLI that takes a prompt — on **your** keys. No account, no hosted service, no telemetry.
+
+![Mission tab: one sentence became a brief, questions, a plan, sliders for who does how much, and a cost range before anything runs](docs/dashboard-mission.png)
+
+```bash
+pipx install git+https://github.com/davidi0x/V-COMMAND   # Python 3.10+; not on PyPI yet
+vcmd init && vcmd check add -- npm test
+vcmd mission new "Add password reset" --agents claude-sonnet codex --enhance claude-haiku
+vcmd mission share claude-sonnet=30 codex=70    # sliders: or drag them in `vcmd dashboard`
+vcmd mission budget 2.50 && vcmd mission approve && vcmd mission run
+```
+
+* **Nothing runs before you approve** — and you see the cost *range* first, computed from your own run history. No history means "no data", never an invented number. The budget is a hard stop.
+* **Done isn't verified until your checks pass** — the gates judge every step, not the agent's own report.
+* **Neutral across vendors** — mix models per step, fail over when a provider breaks, hand a failed task to another agent with everything that already failed.
+* **Honest numbers** — every claim is measured and published, including the unflattering ones ([benchmarks](benchmarks/results/vague10-haiku-sonnet.md)).
+
+[Mission docs](docs/MISSION.md) · [Persistent workflow](docs/WORKFLOW.md) · [Adapters](docs/ADAPTERS.md)
 
 ![vcmd demo: agent-a reports done, the check fails and is recorded; agent-b receives the context frame, fixes it, the check passes](docs/demo.svg)
 
-**Done isn't verified.** Run it yourself: `vcmd demo` (scripted agents, real files, checks and ledger; regenerate the recording with `python scripts/render_demo_svg.py`).
+**Done isn't verified.** Run it yourself: `vcmd demo` (scripted agents, real files, checks and ledger).
 
 ## Why
 
-AI coding agents are useful, but "task completed" is not evidence the change works. Developers also need transparent cost accounting and continuity across models. V/COMMAND starts with independent verification and truthful, local evidence reports. Future releases can add opt-in provider adapters, memory, handoffs, routing and budgets.
+AI coding agents are useful, but "task completed" is not evidence the change works, nobody tells you what a task will cost before it runs, and every vendor's tool only drives its own models. V/COMMAND is the neutral layer in between: a plan you approve, a cost range you can see, a budget that stops the run, checks that decide "done", and a handoff that survives any session or provider.
 
-## Current features (0.1.0-alpha)
+## Current features (0.2.0-alpha)
 
 - Run a user-supplied command **without a shell**; output stays in your terminal.
 - Configure verification commands and automatically execute them after a successful task command.
@@ -30,6 +45,7 @@ AI coding agents are useful, but "task completed" is not evidence the change wor
 - **Failover, cost, budget:** agents whose provider fails are skipped for a cooldown; Claude Code's reported cost is recorded per attempt; `--budget` stops spending on a task.
 - **Benchmark:** `vcmd bench` compares `agent:plain` vs `agent:frame` on a task suite (see [benchmarks/](benchmarks/README.md)). Measured on 200 TypeScript tasks with Claude Haiku: no pass-rate benefit from the frame so far (200/200 both ways, also after a failed first attempt) at +5–7% cost — published as measured.
 - **Local backup and overnight queue:** `vcmd hw` recommends an Ollama model that fits your machine and registers it as a fallback agent; `vcmd queue` runs tasks overnight, commits only verified work and keeps questions for you.
+- **Mission:** `vcmd mission` / the dashboard's Mission tab — one sentence → (optional read-only enhancer) brief, questions and steps → sliders for who does how much → cost/token/time range from your own history → approve → step-by-step run with the gates after every step. See [docs/MISSION.md](docs/MISSION.md) for what it measured and what it does not claim.
 - **Persistent workflow for every agent** ([docs/WORKFLOW.md](docs/WORKFLOW.md)): five-field operating brief (`vcmd task start --scope --constraint --done --leave-behind`); `handoff.md` (goal, state, files touched, open issues, next step) rewritten after every run, hook stop and compaction; `vcmd decide` / `vcmd todo`; deploys, publishing, database writes and bulk deletes need `vcmd approve` (PreToolUse hook + stream guard); `vcmd loop` runs planner → builder(s) → reviewer with the gates as judge; `vcmd wake` + `vcmd schedule cron|systemd|github` continue the work from a trigger.
 - **Parallel sessions and reach** ([docs/WORKFLOW.md](docs/WORKFLOW.md#7-worktrees-not-chaos-one-isolated-workspace-per-live-session)): `vcmd worktree new <name>` gives every live session its own worktree with collision warnings; `vcmd sessions` / `vcmd msg send` let sessions talk; `vcmd agent --continue / --resume / --fork`; `vcmd roles` + `queue add --role`; Telegram / Slack / ntfy / webhook notifications, `vcmd remote telegram` to approve and steer from your phone, `vcmd autopilot` to keep waking the work.
 - **Bring your own keys:** V/COMMAND has no keys, account or hosted services of its own. `vcmd connect telegram|slack|ntfy|webhook|agent` wires up *your* bot, webhook or provider; keys live in your OS secret store and an agent can be limited to only the keys it needs (`"secrets": [...]`).
@@ -162,6 +178,7 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | OpenCode adapter | Implemented (`opencode run`) |
 | Code slice + blast radius in the frame | Implemented (Python `ast`; TS/JS tree-sitter with `[ast]`, scanner otherwise) |
 | Benchmark harness + 200-task TypeScript suite + handoff arms | Implemented (`vcmd bench`, `benchmarks/ts200`) |
+| Mission: enhancer, sliders, history-based estimate, approve, run | Implemented (`vcmd mission`, dashboard Mission tab) |
 | Race mode (parallel candidates, first verified wins) | Implemented (`vcmd agent --race`) |
 | Stream guard (kill on banned pattern mid-attempt) | Implemented (Claude Code stream-json) |
 | Hardware probe, local backup agent, overnight queue | Implemented (`--jobs N` parallel workers) |
@@ -192,6 +209,7 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 - [Full product concept (Polish)](docs/CONCEPT_PL.md)
 - [Architecture and evidence contract](docs/ARCHITECTURE.md)
 - [Agent adapters (Claude Code, Codex CLI)](docs/ADAPTERS.md)
+- [Mission: plan, sliders, estimate, approve, run](docs/MISSION.md)
 - [Persistent workflow: brief, handoff, guardrails, roles, triggers](docs/WORKFLOW.md)
 - [Execution Kernel: stateless models, context frames, roadmap](docs/EXECUTION_KERNEL.md)
 - [MVP acceptance criteria](docs/MVP.md)

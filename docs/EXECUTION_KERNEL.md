@@ -48,7 +48,13 @@ All runs with Claude Haiku via Claude Code, provider-reported costs, results in 
 | ts200, 200 tasks, single attempt | 200/200 | 200/200 | +4.9% |
 | ts200, handoff after a failed attempt | 200/200 rescued | 200/200 rescued | +6.5% |
 
-**So far the frame has shown no pass-rate benefit and a small cost.** These tasks are solvable from the
+| vague10 (10 tasks, hidden conventions), Haiku | 20/20 | 20/20 | +36% |
+| vague10, Sonnet | 13/20 | 19/20 (p = 0.044) | +15% |
+
+On the earlier suites the frame showed no pass-rate benefit and a small cost; on vague10 it lifted Sonnet from 65% to 95% and made no difference for Haiku (details and caveats in
+[benchmarks/results/vague10-haiku-sonnet.md](../benchmarks/results/vague10-haiku-sonnet.md)). The Mission enhancer was measured too and did **not** beat the frame (Sonnet 90% vs 95%) at about twice the cost.
+
+**Earlier result, kept for the record: on sample and ts200 the frame showed no pass-rate benefit and a small cost.** These tasks are solvable from the
 goal alone, and failed first attempts left no misleading edits behind. The frame's claimed value —
 continuity after misleading failures, and finding the right code in large repositories — remains a
 hypothesis until a harder suite shows it. Total spend on these measurements: about $6.

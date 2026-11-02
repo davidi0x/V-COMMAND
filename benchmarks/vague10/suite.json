@@ -1,0 +1,136 @@
+{
+  "name": "vague10",
+  "description": "Ten tasks with a one-sentence goal; the requirements the hidden tests check live only in each repository's README.md. Measures whether reading and applying the repository's own conventions (what a good brief makes explicit) changes the pass rate.",
+  "tasks": [
+    {
+      "id": "slugify",
+      "dir": "slugify",
+      "goal": "Implement slugify() in slugs.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_slugs.py"
+        ]
+      ]
+    },
+    {
+      "id": "duration",
+      "dir": "duration",
+      "goal": "Add parse_duration() to durations.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_durations.py"
+        ]
+      ]
+    },
+    {
+      "id": "chunk",
+      "dir": "chunk",
+      "goal": "Write chunk(items, size) in seqs.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_seqs.py"
+        ]
+      ]
+    },
+    {
+      "id": "intervals",
+      "dir": "intervals",
+      "goal": "Implement merge_intervals() in ranges.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_ranges.py"
+        ]
+      ]
+    },
+    {
+      "id": "human_size",
+      "dir": "human_size",
+      "goal": "Add human_size() to sizes.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_sizes.py"
+        ]
+      ]
+    },
+    {
+      "id": "snake",
+      "dir": "snake",
+      "goal": "Implement camel_to_snake() in names.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_names.py"
+        ]
+      ]
+    },
+    {
+      "id": "title_case",
+      "dir": "title_case",
+      "goal": "Write title_case() in texts.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_texts.py"
+        ]
+      ]
+    },
+    {
+      "id": "flatten",
+      "dir": "flatten",
+      "goal": "Implement flatten() in nested.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_nested.py"
+        ]
+      ]
+    },
+    {
+      "id": "wrap",
+      "dir": "wrap",
+      "goal": "Add word_wrap(text, width) to wrap.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_wrap.py"
+        ]
+      ]
+    },
+    {
+      "id": "backoff",
+      "dir": "backoff",
+      "goal": "Implement retry_delays() in retry.py.",
+      "focus": [],
+      "gates": [
+        [
+          "python",
+          "-B",
+          "test_retry.py"
+        ]
+      ]
+    }
+  ]
+}

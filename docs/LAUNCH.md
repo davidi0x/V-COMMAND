@@ -5,7 +5,7 @@
 **Name:** V/COMMAND (subject to trademark clearance)
 **CLI:** `vcmd` (check command/package availability before distribution)
 **Symbol:** `V/` — simple enough for 16×16 icon, terminal prompt and product thumbnail.
-**Tagline:** `Your agents. Under control.`
+**Tagline:** `Mission control for AI coding agents.` (one line to repeat: "Approve the plan and the cost range before anything runs.")
 **Product promise:** `Done ≠ Verified.`
 
 Brand intent: dependable development instrument, not a generic glowing AI dashboard.
@@ -45,3 +45,31 @@ Settings recommended: Issues enabled; Discussions enabled; branch protection req
 ## License & sustainability
 
 MIT core forever free; donations/sponsorships optional. Users bring their own agent and model accounts. Paid API charges remain external, and are not hidden under "free" marketing.
+
+
+## Launch plan (Product Hunt / Show HN) — what must be true first
+
+Do not launch before these are done; a launch is one shot and visitors judge the first minute.
+
+1. **One-line install that works.** Today: `pipx install git+https://github.com/davidi0x/V-COMMAND`. Publish to PyPI
+   (`vcommand-cli`) and check the name before the day; add Homebrew only if there is demand.
+2. **A 60-second demo, real, no slides:** one sentence → brief and questions → drag the sliders, watch the plan
+   and the cost range change → approve → steps run, gates pass → report with estimate vs actual. Record from the
+   dashboard Mission tab with a real agent; show a failure and a recovery too.
+3. **Proof, including the unflattering parts.** Publish `benchmarks/results/*` as they are: the frame lifted
+   Sonnet 65% → 95% on vague10, did nothing for Haiku, the enhancer did not beat the frame. Honesty is the brand;
+   investors and developers check.
+4. **Early users before the day:** 20–50 developers who ran a real mission, with their honest comments. Ask for
+   feedback, never for votes. Do not buy or trade upvotes (it gets listings removed and is visible to investors).
+5. **Listing:** name, the one-line tagline, 3–4 screenshots (Mission, plan with questions, report, dark mode),
+   GIF, first comment with the story ("why I built it", the numbers, what it does not do), maker available all
+   day. Tuesday–Thursday, 00:01 Pacific. Same week: Show HN with the honest benchmark as the hook.
+6. **Metrics to track (and show to investors):** weekly active projects, missions approved per week, share of
+   missions that finish with all gates passing, **cost per verified task** by model mix, retention after week 1.
+
+## Business model (core stays MIT and free; users keep their own keys)
+
+Paid layers for teams, never for the local core: shared run history / estimator and approvals with audit log
+and SSO; hosted wake-ups ("autopilot" without your own server); organization policies (who may approve deploys,
+database writes); optional, anonymized, opt-in community estimates. The data asset worth building is
+**cost per verified task by model mix on real repositories** — published openly, never invented.

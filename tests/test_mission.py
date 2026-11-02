@@ -219,6 +219,17 @@ class MissionFlowTests(MissionBase):
         self.assertEqual(len(m["steps"]), 3)
         self.assertEqual(m["enhancer"], "chatty")
 
+    def test_stale_task_of_a_finished_mission_is_cleared(self):
+        mi.new_mission(self.root, "Make three files", agents=["alpha"], enhancer="planner", out=io.StringIO())
+        mi.approve(self.root, skip_questions=True)
+        self.assertTrue((self.root / ".vcommand" / "task.json").exists())
+        mi.discard(self.root)
+        self.assertFalse((self.root / ".vcommand" / "task.json").exists())
+        mi.new_mission(self.root, "Again", agents=["alpha"], enhancer=None)
+        mi.approve(self.root)
+        mi.new_mission(self.root, "Next", agents=["alpha"], enhancer=None)  # new draft over an approved one
+        self.assertFalse((self.root / ".vcommand" / "task.json").exists())
+
     def test_enhancer_is_read_only_and_never_counts_as_history(self):
         mi.new_mission(self.root, "Make three files", agents=["alpha"], enhancer="planner", out=io.StringIO())
         run = list_evidence(self.root)[-1]

@@ -768,7 +768,7 @@ function vSettings(s) {
 
 
 /* ---------- mission ---------- */
-const rng = (b, f) => !b ? "no data" : (b[0] === b[2] ? f(b[1]) : `${f(b[0])}–${f(b[2])}`);
+const rng = (b, f) => !b ? "no data" : (f(b[0]) === f(b[2]) ? f(b[1]) : `${f(b[0])}–${f(b[2])}`);
 const fUsd = (v) => "$" + (v < 0.1 ? v.toFixed(3) : v.toFixed(2));
 const fTok = (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? Math.round(v / 1e3) + "k" : String(Math.round(v));
 const fSec = (v) => v >= 3600 ? (v / 3600).toFixed(1) + " h" : v >= 90 ? Math.round(v / 60) + " min" : Math.round(v) + " s";

@@ -52,6 +52,34 @@ class BenchTests(unittest.TestCase):
             self.assertTrue((Path(summary["dir"]) / "report.md").read_text().startswith("# V/COMMAND benchmark"))
             self.assertGreater(rows[1]["prompt_chars"], rows[0]["prompt_chars"])
 
+    def test_enhanced_arm_counts_enhancer_cost_and_cost_per_verified(self):
+        plan = json.dumps({"brief": {"scope": "calc.py", "constraints": [], "done": "tests pass"}, "questions": [],
+                           "assumptions": ["add means integer addition"],
+                           "steps": [{"title": "fix add", "difficulty": "easy", "detail": "return a + b"}]})
+        code = ("import json, sys, pathlib\np = sys.argv[1]\n"
+                "def res(t, c): print(json.dumps({'type': 'result', 'subtype': 'success', 'result': t, 'total_cost_usd': c}))\n"
+                "if 'MISSION ENHANCER' in p: res(" + repr(plan) + ", 0.01)\n"
+                "else:\n"
+                "    if 'Plan prepared for this task' in p:\n"
+                "        pathlib.Path('calc.py').write_text('def add(a, b):\\n    return a + b\\n\\n\\ndef mul(a, b):\\n    return a * b\\n')\n"
+                "    res('done', 0.02)\n")
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "proj"
+            project.mkdir()
+            init_project(project)
+            cfg = load_config(project)
+            cfg["agents"] = {"fake": {"argv": [sys.executable, "-c", code, "{prompt}"], "parser": "claude-stream"}}
+            save_config(project, cfg)
+            summary = run_bench(SUITE_DIR, ["fake:plain", "fake:enhanced"], project_root=project,
+                                tasks_filter=["fix-add"], out_dir=Path(temp) / "out", out=io.StringIO())
+            plain, enhanced = summary["arms"]["fake:plain"], summary["arms"]["fake:enhanced"]
+            self.assertEqual((plain["passed"], enhanced["passed"]), (0, 1))
+            self.assertAlmostEqual(plain["known_cost_usd"], 0.02)
+            self.assertAlmostEqual(enhanced["known_cost_usd"], 0.03)  # enhancer 0.01 + worker 0.02
+            self.assertIsNone(plain["cost_per_verified_usd"])         # nothing verified: no division, no invented number
+            self.assertAlmostEqual(enhanced["cost_per_verified_usd"], 0.03)
+            self.assertIn("Cost per verified task", (Path(summary["dir"]) / "report.md").read_text())
+
     def test_handoff_arms_share_first_attempt(self):
         # "lazy" never fixes; "fixer" fixes only when briefed with the frame that records lazy's failure
         lazy = "import sys"

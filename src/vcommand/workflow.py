@@ -576,14 +576,14 @@ def _diff_text(repo: Path, limit: int = 40_000) -> str:
 
 
 def _text_role(root: Path, agent: str, instruction: str, *, out: TextIO, timeout: int, label: str,
-               fallback_file: str | None = None, quiet: bool = False) -> tuple[str | None, dict[str, Any]]:
+               fallback_file: str | None = None, quiet: bool = False, templates: dict[str, Any] | None = None) -> tuple[str | None, dict[str, Any]]:
     """Run one agent for a text answer (planner / reviewer). Gates are not run for text roles."""
     from .adapters import (agent_templates, resolve_agent, build_prompt, agent_env, parser_context,
                            PROMPT_PLACEHOLDER)
     from .core import run_task
     from .state import build_frame
     cfg = load_config(root)
-    spec = resolve_agent(agent_templates(cfg), agent)
+    spec = resolve_agent(templates or agent_templates(cfg), agent)
     frame = build_frame(root)
     prompt = build_prompt(frame, instruction)
     argv = [prompt if a == PROMPT_PLACEHOLDER else a for a in spec["argv"]]
