@@ -94,6 +94,7 @@ def make_parser() -> argparse.ArgumentParser:
                        help="A>B: A tries first (plain); on failure B continues with plain vs frame briefing")
     bench.add_argument("--jobs", type=int, default=1, help="Runs in parallel")
     bench.add_argument("--limit", type=int, help="Only the first N tasks")
+    bench.add_argument("--resume", help="Results directory of an earlier run: re-run only infra errors and missing runs")
     hooks = sub.add_parser("hooks", help="Install or remove agent hooks (Claude Code, Codex CLI)")
     hooks.add_argument("action", choices=["install", "uninstall"])
     hooks.add_argument("target", choices=HOOK_TARGETS)
@@ -129,6 +130,19 @@ def make_parser() -> argparse.ArgumentParser:
     hw.add_argument("--json", action="store_true")
     hw.add_argument("--add-agent", metavar="NAME", help="Register a local agent (Codex --oss + Ollama) in config")
     hw.add_argument("--model", help="Model tag for --add-agent (default: the recommendation)")
+    dash = sub.add_parser("dashboard", help="Local web dashboard: runs, costs, ledger, queue, benchmarks, API keys")
+    dash.add_argument("--port", type=int, default=0, help="Port on 127.0.0.1 (default: random free port)")
+    dash.add_argument("--no-open", action="store_true", help="Do not open a browser")
+    dash.add_argument("--background", action="store_true", help="Run detached and print the URL (used by /dashboard)")
+    dash.add_argument("--stop", action="store_true", help="Stop a background dashboard")
+    dash.add_argument("--install-command", action="store_true", help="Add /dashboard to Claude Code (.claude/commands)")
+    sec = sub.add_parser("secret", help="Store API keys as secrets (OS keychain / DPAPI / secret-tool / 0600 file)")
+    sec_sub = sec.add_subparsers(dest="secret_action", required=True)
+    sec_set = sec_sub.add_parser("set", help="Store a key (value read without echo)")
+    sec_set.add_argument("name")
+    sec_sub.add_parser("list", help="List stored key names (values masked)")
+    sec_rm = sec_sub.add_parser("rm", help="Delete a key")
+    sec_rm.add_argument("name")
     sub.add_parser("cost", help="Report tracked and unknown provider costs")
     demo = sub.add_parser("demo", help="Done isn't verified: scripted agents, real checks, ledger and handoff")
     demo.add_argument("--fast", action="store_true", help="No pauses (for CI and recordings)")
@@ -185,6 +199,32 @@ def main(argv: list[str] | None = None) -> int:
             q.ask(q.current_queue_root(root), task_id, args.question, args.option)
             print(f"V/  Task {task_id} frozen until the developer answers. Stop working on it now.")
             return 0
+        if args.command == "dashboard":
+            from . import dashboard as d
+            if args.install_command:
+                print(f"V/  /dashboard added for Claude Code: {d.install_command(root)}")
+                return 0
+            if args.stop:
+                print("V/  Dashboard stopped" if d.stop_background(root) else "V/  No background dashboard")
+                return 0
+            if args.background:
+                info = d.start_background(root, args.port)
+                print(f"V/  Dashboard: {info['url']}")
+                print("V/  Local only (127.0.0.1); the link contains a private access token. Stop: vcmd dashboard --stop")
+                return 0
+            server, url = d.make_server(root, args.port, os.environ.get("VCOMMAND_DASHBOARD_TOKEN"))
+            print(f"V/  Dashboard: {url}")
+            print("V/  Local only (127.0.0.1). Ctrl+C to stop.")
+            if not args.no_open:
+                import webbrowser
+                webbrowser.open(url)
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                server.server_close()
+            return 0
         if args.command == "hw":
             from .hw import probe, recommend, render, local_agent_template
             info = probe(root)
@@ -209,18 +249,40 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--repeats and --timeout must be positive")
             summary = run_bench(Path(args.suite), args.arm, repeats=args.repeats, timeout=args.timeout,
                                 out_dir=Path(args.out) if args.out else None, project_root=root,
-                                tasks_filter=args.task, jobs=args.jobs, handoffs=args.handoff, limit=args.limit)
+                                tasks_filter=args.task, jobs=args.jobs, handoffs=args.handoff, limit=args.limit,
+                                resume=Path(args.resume) if args.resume else None)
             from .bench import render_report
             print("\n" + render_report(summary))
             print(f"V/  Results: {summary['dir']}")
+            return 0
+        if args.command == "secret":
+            from . import secrets_store as ss
+            if args.secret_action == "set":
+                import getpass
+                value = sys.stdin.readline() if not sys.stdin.isatty() else getpass.getpass(f"{args.name}: ")
+                r = ss.set_secret(args.name, value)
+                print(f"V/  Stored {r['name']} ({r['hint']}) in {r['backend']}")
+            elif args.secret_action == "rm":
+                ss.delete_secret(args.name)
+                print(f"V/  Deleted {args.name}")
+            else:
+                b = ss.describe_backend()
+                print(f"V/  Store: {b['name']}")
+                for x in ss.list_secrets():
+                    print(f"{x['name']:24} {x['hint']:14} {x['label']}")
             return 0
         if args.command == "hooks":
             settings = Path(args.settings) if args.settings else None
             name = {"claude": "Claude Code", "codex": "Codex"}[args.target]
             if args.action == "install":
                 path, changed = install_hooks(root, args.target, settings)
+                if args.target == "claude":
+                    from .dashboard import install_command
+                    install_command(root)
                 print(f"V/  {name} hooks {'added: ' + ', '.join(changed) if changed else 'already installed'} ({path})")
                 print(f"V/  SessionStart injects the context frame; Stop runs your checks before {name} may finish.")
+                if args.target == "claude":
+                    print("V/  /dashboard is available in Claude Code (.claude/commands/dashboard.md)")
                 print(f"V/  Requires `vcmd` on PATH for {name}. Remove with: vcmd hooks uninstall {args.target}")
                 if args.target == "codex":
                     print("V/  Codex runs project hooks only after you trust them: open `codex`, run /hooks, trust both.")

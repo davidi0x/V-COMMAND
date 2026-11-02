@@ -72,6 +72,29 @@ vcmd agent --race claude codex      # all at once; first verified wins, the rest
 
 Details: [docs/ADAPTERS.md](docs/ADAPTERS.md).
 
+### Dashboard and API keys
+
+```bash
+vcmd dashboard                   # opens http://127.0.0.1:<port>/?token=… in your browser
+vcmd dashboard --background      # detached; prints the URL (vcmd dashboard --stop)
+vcmd dashboard --install-command # /dashboard inside Claude Code (also added by `vcmd hooks install claude`)
+vcmd secret set OPENAI_API_KEY   # or add keys on the dashboard's "API keys" tab
+```
+
+![V/COMMAND dashboard: KPI tiles, current task, run outcomes, latest runs](docs/dashboard.png)
+
+One local page with overview KPIs, runs and provider-reported costs, verified rate per agent, ledger
+and pre-flight warnings, agent health, the queue (answer frozen tasks, add tasks), benchmark results
+with confidence intervals, hardware and the current context frame. Light and dark, works on a phone.
+
+- **Keys are secrets.** Stored in macOS Keychain, Windows DPAPI (encrypted for your user), Linux Secret
+  Service, or — if none is available — `~/.config/vcommand/secrets.json` with permissions 0600 (shown as
+  "not encrypted"). Values are never shown again or sent to the page; you see `sk-…abcd`. They are
+  passed only to agents V/COMMAND starts; a variable already set in your shell wins. Storing
+  `ANTHROPIC_API_KEY` switches Claude Code to API billing for those agents.
+- **Local only.** Binds to 127.0.0.1, every request needs the random token from the URL, the Host header
+  must be loopback (DNS-rebinding protection), actions accept JSON only.
+
 ### Overnight queue
 
 ```bash
@@ -123,6 +146,7 @@ The resulting JSON is stored in `.vcommand/runs/` (should be Git-ignored). It is
 | True air-gapped offline enforcement | Not implemented |
 | Local semantic memory / savings measurements | Planned |
 | Auto-repair on failed verification | Planned |
+| Local web dashboard + API keys in the OS secret store | Implemented (`vcmd dashboard`, `/dashboard`, `vcmd secret`) |
 | Advanced TUI and IDE companions | Planned |
 
 ## Project principles

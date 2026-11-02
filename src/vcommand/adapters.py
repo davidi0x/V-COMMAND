@@ -192,8 +192,16 @@ def _changed_files(evidence: dict[str, Any], limit: int = 5) -> list[str]:
 
 
 def agent_env(root: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
-    """Environment for launched agents: `vcmd` inside them (CLI or hooks) targets the main project."""
-    return {**os.environ, "VCOMMAND_ROOT": str(root.resolve()), "VCOMMAND_WRAPPED": "1", **(extra or {})}
+    """Environment for launched agents: stored API keys (vcmd secret / dashboard), plus VCOMMAND_ROOT so
+    `vcmd` inside them (CLI or hooks) targets the main project. Variables already set win over secrets."""
+    secrets: dict[str, str] = {}
+    if not os.environ.get("VCOMMAND_NO_SECRETS"):
+        try:
+            from .secrets_store import secrets_env
+            secrets = secrets_env()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            secrets = {}
+    return {**secrets, **os.environ, "VCOMMAND_ROOT": str(root.resolve()), "VCOMMAND_WRAPPED": "1", **(extra or {})}
 
 
 STOPPED_FOR_HUMAN = 3  # run_agents exit code: an agent asked for a human decision

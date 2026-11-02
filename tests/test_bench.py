@@ -73,6 +73,34 @@ class BenchTests(unittest.TestCase):
             self.assertEqual((plain["rescued"], frame["rescued"]), (0, 1))  # only fix-add is solvable by fixer
             self.assertIn("Handoff after a failed first attempt", (Path(summary["dir"]) / "report.md").read_text())
 
+    def test_provider_failures_are_excluded_and_resumable(self):
+        import vcommand.bench as bench_mod
+        down = "import sys; sys.exit(1)"   # provider refused: exit 1, no file changes
+        fixer = ("import pathlib; pathlib.Path('calc.py').write_text("
+                 "'def add(a, b):\\n    return a + b\\n\\n\\ndef mul(a, b):\\n    return a * b\\n')")
+        saved = bench_mod.INFRA_BACKOFF_S
+        bench_mod.INFRA_BACKOFF_S = (0,)
+        self.addCleanup(setattr, bench_mod, "INFRA_BACKOFF_S", saved)
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "proj"
+            project.mkdir()
+            init_project(project)
+            cfg = load_config(project)
+            cfg["agents"] = {"agent": [sys.executable, "-c", down, "{prompt}"]}
+            save_config(project, cfg)
+            summary = run_bench(SUITE_DIR, ["agent:plain"], project_root=project, tasks_filter=["fix-add", "paginate"],
+                                out_dir=Path(temp) / "out", out=io.StringIO())
+            arm = summary["arms"]["agent:plain"]
+            self.assertEqual((arm["runs"], arm["infra_errors"]), (0, 2))   # not counted as task failures
+            cfg["agents"] = {"agent": [sys.executable, "-c", fixer, "{prompt}"]}   # provider recovered
+            save_config(project, cfg)
+            resumed = run_bench(SUITE_DIR, ["agent:plain"], project_root=project, tasks_filter=["fix-add", "paginate"],
+                                resume=Path(summary["dir"]), out=io.StringIO())
+            arm = resumed["arms"]["agent:plain"]
+            self.assertEqual((arm["runs"], arm["passed"], arm["infra_errors"]), (2, 1, 0))
+            rows = (Path(summary["dir"]) / "results.jsonl").read_text().splitlines()
+            self.assertEqual(len(rows), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

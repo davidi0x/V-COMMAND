@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V/COMMAND Dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --raised: #ffffff;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #77756f;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+  --s1: #2a78d6; --s2: #eb6834;
+  --good: #0ca30c; --good-text: #006300; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --accent: #2a78d6; --chip: #eef3fb;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --raised: #222221;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --good-text: #0ca30c; --accent: #3987e5; --chip: #1d2a3b;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --raised: #222221;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --good-text: #0ca30c; --accent: #3987e5; --chip: #1d2a3b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+       font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: var(--surface);
+         border-bottom: 1px solid var(--ring); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+.brand { font-weight: 700; font-size: 16px; letter-spacing: .2px; }
+.brand span { color: var(--accent); }
+.project { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; max-width: 46vw; }
+.spacer { flex: 1; }
+button, .btn { font: inherit; border: 1px solid var(--ring); background: var(--raised); color: var(--ink);
+               border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--axis); }
+button.primary { background: var(--accent); color: #fff; border-color: transparent; }
+button.danger { color: var(--critical); }
+nav { display: flex; gap: 2px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--ring);
+      overflow-x: auto; }
+nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 10px 12px;
+             color: var(--ink-2); white-space: nowrap; }
+nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+main { padding: 20px 24px 60px; max-width: 1280px; margin: 0 auto; }
+section[hidden] { display: none; }
+h2 { font-size: 15px; margin: 24px 0 10px; }
+h2:first-child { margin-top: 0; }
+.muted { color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 16px; }
+.grid { display: grid; gap: 12px; }
+.kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.two { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+.tile .label { color: var(--ink-2); font-size: 12px; }
+.tile .value { font-size: 28px; font-weight: 650; margin-top: 4px; }
+.tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--ink-2); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--axis);
+     position: sticky; top: 0; background: var(--surface); }
+td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table-wrap { overflow: auto; max-height: 560px; border-radius: 12px; border: 1px solid var(--ring); background: var(--surface); }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+.status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.status i { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; font-style: normal;
+            font-size: 11px; font-weight: 700; color: #fff; }
+.st-good i { background: var(--good); } .st-bad i { background: var(--critical); }
+.st-warn i { background: var(--warning); color: #0b0b0b; } .st-off i { background: var(--muted); }
+.chip { display: inline-block; background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; margin: 0 4px 4px 0; }
+.bars { display: grid; gap: 8px; }
+.bar-row { display: grid; grid-template-columns: minmax(110px, 180px) 1fr minmax(70px, auto); gap: 10px; align-items: center; }
+.bar-name { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.bar-track { height: 14px; background: var(--grid); border-radius: 4px; position: relative; }
+.bar-fill { height: 100%; border-radius: 4px; min-width: 2px; }
+.bar-ci { position: absolute; top: 3px; height: 8px; border-left: 2px solid var(--ink-2); border-right: 2px solid var(--ink-2); }
+.bar-ci::after { content: ""; position: absolute; top: 3px; left: 0; right: 0; border-top: 2px solid var(--ink-2); }
+.bar-val { font-variant-numeric: tabular-nums; font-size: 13px; text-align: right; }
+.legend { display: flex; gap: 14px; color: var(--ink-2); font-size: 12px; margin: 4px 0 10px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px;
+                        background: var(--c); vertical-align: -1px; }
+.hint { border-left: 3px solid var(--warning); padding: 6px 10px; margin: 6px 0; background: var(--raised); border-radius: 4px; }
+pre.frame { white-space: pre-wrap; font-family: var(--mono); font-size: 12px; margin: 0; max-height: 640px; overflow: auto; }
+form.inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+input, textarea, select { font: inherit; background: var(--raised); color: var(--ink); border: 1px solid var(--axis);
+                          border-radius: 8px; padding: 6px 10px; min-width: 0; }
+input[type=password] { font-family: var(--mono); }
+.grow { flex: 1 1 220px; }
+.empty { color: var(--muted); padding: 18px; text-align: center; }
+#tip { position: fixed; pointer-events: none; background: var(--raised); color: var(--ink); border: 1px solid var(--ring);
+       box-shadow: 0 4px 16px rgba(0,0,0,.18); border-radius: 8px; padding: 6px 10px; font-size: 12px; z-index: 50;
+       display: none; max-width: 320px; }
+#toast { position: fixed; bottom: 18px; right: 18px; background: var(--ink); color: var(--page); padding: 8px 14px;
+         border-radius: 8px; display: none; z-index: 60; }
+.q-task { padding: 12px 0; border-bottom: 1px solid var(--grid); }
+.q-task:last-child { border-bottom: 0; }
+.question { margin: 6px 0; font-weight: 600; }
+@media (max-width: 640px) {
+  header, nav, main { padding-left: 16px; padding-right: 16px; }
+  .two { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: 90px 1fr 60px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span>V/</span>COMMAND</div>
+  <div class="project" id="project"></div>
+  <div class="spacer"></div>
+  <span class="muted" id="updated"></span>
+  <button id="refresh" title="Reload data">Refresh</button>
+  <button id="theme" title="Toggle light/dark">Theme</button>
+</header>
+<nav role="tablist" id="tabs"></nav>
+<main>
+  <section id="overview"></section>
+  <section id="runs" hidden></section>
+  <section id="agents" hidden></section>
+  <section id="ledger" hidden></section>
+  <section id="queue" hidden></section>
+  <section id="bench" hidden></section>
+  <section id="hardware" hidden></section>
+  <section id="frame" hidden></section>
+  <section id="keys" hidden></section>
+</main>
+<div id="tip" role="tooltip"></div>
+<div id="toast" role="status"></div>
+<script>
+"use strict";
+const TOKEN = new URLSearchParams(location.search).get("token") || "";
+const TABS = [["overview","Overview"],["runs","Runs & costs"],["agents","Agents"],["ledger","Ledger"],
+              ["queue","Queue"],["bench","Benchmarks"],["hardware","Hardware"],["frame","Context frame"],["keys","API keys"]];
+let STATE = null;
+
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const usd = (v, d = 4) => v == null ? "unknown" : "$" + Number(v).toFixed(d);
+const pct = (v) => (v * 100).toFixed(0) + "%";
+const $ = (id) => document.getElementById(id);
+
+async function api(path, body) {
+  const opts = { headers: { "X-VCMD-Token": TOKEN } };
+  if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const res = await fetch(path, opts);
+  const type = res.headers.get("Content-Type") || "";
+  const data = type.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; setTimeout(() => t.style.display = "none", 2600); }
+
+function status(s) {
+  const map = { verified_by_configured_checks: ["st-good", "✓", "verified"], failed_verification: ["st-bad", "✕", "gates failed"],
+                failed: ["st-bad", "✕", "failed"], unverified: ["st-warn", "!", "unverified"],
+                done: ["st-good", "✓", "done"], frozen: ["st-warn", "?", "waiting for you"], blocked: ["st-off", "–", "blocked"],
+                pending: ["st-off", "…", "pending"], running: ["st-warn", "▶", "running"],
+                open: ["st-bad", "✕", "open (skipped)"], closed: ["st-good", "✓", "healthy"], recovering: ["st-warn", "!", "cooldown over"],
+                cancelled: ["st-off", "–", "cancelled (lost race)"], encrypted: ["st-good", "✓", "encrypted"],
+                plaintext: ["st-warn", "!", "not encrypted"] };
+  const [cls, icon, label] = map[s] || ["st-off", "•", s];
+  return `<span class="status ${cls}"><i aria-hidden="true">${icon}</i>${esc(label)}</span>`;
+}
+
+// ---- tooltip
+document.addEventListener("mousemove", (e) => {
+  const el = e.target.closest("[data-tip]"); const tip = $("tip");
+  if (!el) { tip.style.display = "none"; return; }
+  tip.innerHTML = el.dataset.tip; tip.style.display = "block";
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8), y = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+});
+
+function bars(rows, opts = {}) {
+  // rows: {name, value, label, tip, color, ci:[lo,hi]} — value in [0, max]
+  if (!rows.length) return `<div class="empty">${esc(opts.empty || "No data yet")}</div>`;
+  const max = opts.max ?? Math.max(...rows.map((r) => r.value), 1e-9);
+  return `<div class="bars">${rows.map((r) => {
+    const w = Math.max(0, Math.min(100, (r.value / max) * 100));
+    const ci = r.ci ? `<div class="bar-ci" style="left:${r.ci[0] / max * 100}%;width:${(r.ci[1] - r.ci[0]) / max * 100}%"></div>` : "";
+    return `<div class="bar-row" data-tip="${esc(r.tip || r.name + ": " + r.label)}">
+      <div class="bar-name" title="${esc(r.name)}">${esc(r.name)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${r.color || "var(--s1)"}"></div>${ci}</div>
+      <div class="bar-val">${esc(r.label)}</div></div>`;
+  }).join("")}</div>`;
+}
+
+// ---- views
+function viewOverview(s) {
+  const k = s.kpi, rate = k.runs ? k.verified / k.runs : 0;
+  const tiles = [
+    ["Runs", k.runs, `${k.verified} verified · ${k.failed} failed`],
+    ["Verified rate", k.runs ? pct(rate) : "—", "gates decide, not agents"],
+    ["Known spend", usd(k.known_cost_usd, 2), "provider-reported"],
+    ["Unknown-cost runs", k.unknown_cost_runs, "no receipt: not counted as $0"],
+    ["Ledger entries", k.ledger, "failed approaches remembered"],
+    ["Waiting for you", k.queue_waiting, "queue questions"],
+  ];
+  const statuses = Object.entries(s.statuses).sort((a, b) => b[1] - a[1]);
+  const statusColor = { verified_by_configured_checks: "var(--good)", unverified: "var(--warning)" };
+  const statusName = { verified_by_configured_checks: "verified", failed_verification: "gates failed", failed: "failed", unverified: "unverified" };
+  const task = s.task;
+  return `
+  <div class="grid kpis">${tiles.map(([l, v, sub]) => `<div class="card tile"><div class="label">${l}</div>
+    <div class="value">${esc(v)}</div><div class="sub">${esc(sub)}</div></div>`).join("")}</div>
+  <div class="grid two" style="margin-top:12px">
+    <div class="card"><h2>Current task</h2>${task ? `<div><b>${esc(task.goal)}</b></div>
+      <div class="muted" style="margin:6px 0">${esc(task.id)} · next: ${esc(task.next_step || "not set")}</div>
+      ${(task.completed_steps || []).map((st) => `<div>✓ ${esc(st.step)}</div>`).join("")}
+      ${(s.frame.focus || []).map((f) => `<span class="chip mono">${esc(f)}</span>`).join("")}
+      <div style="margin-top:8px" class="muted mono">frame ${esc(s.frame.token.slice(0, 23))}</div>`
+      : `<div class="empty">No active task — <code>vcmd task start "goal"</code></div>`}
+      <h2>Acceptance gates</h2>${s.frame.gates.length ? s.frame.gates.map((g) => `<div><code>${esc(g)}</code></div>`).join("")
+        : `<div class="muted">None configured: results can only be "unverified".</div>`}
+    </div>
+    <div class="card"><h2>Run outcomes</h2>
+      ${bars(statuses.map(([st, n]) => ({ name: statusName[st] || st, value: n, label: String(n),
+        color: statusColor[st] || "var(--critical)", tip: `${esc(st)}: ${n} run(s)` })), { empty: "No runs yet" })}
+      <h2>Pre-flight warnings</h2>${s.frame.hints.length ? s.frame.hints.map((h) => `<div class="hint">${esc(h)}</div>`).join("")
+        : `<div class="muted">None — warnings appear once the ledger shows repeated failures.</div>`}
+    </div>
+  </div>
+  <h2>Latest runs</h2>
+  <div class="table-wrap"><table><thead><tr><th>Run</th><th>Agent</th><th>Status</th><th class="num">Duration</th><th class="num">Cost</th></tr></thead><tbody>
+  ${s.runs.slice(0, 6).map(runRow).join("") || `<tr><td colspan="5" class="empty">No runs yet</td></tr>`}</tbody></table></div>`;
+}
+
+function runStatus(r) {
+  return (r.cancelled ? status("cancelled") : status(r.status)) +
+    (r.killed ? `<div class="muted" style="font-size:12px">${esc(r.killed)}</div>` : "");
+}
+function runRow(r) {
+  return `<tr><td class="mono">${esc(r.id)}${r.isolated ? ' <span class="chip">worktree</span>' : ""}</td>
+    <td>${esc(r.agent || "—")}</td><td>${runStatus(r)}</td>
+    <td class="num">${r.duration_ms == null ? "—" : (r.duration_ms / 1000).toFixed(1) + " s"}</td>
+    <td class="num" data-tip="${esc(r.cost_source || "")}">${usd(r.cost)}${r.estimated ? " (est.)" : ""}</td></tr>`;
+}
+
+function viewRuns(s) {
+  const spend = s.agents.filter((a) => a.runs).map((a) => ({ name: a.name, value: a.cost,
+    label: a.unknown_cost === a.runs ? "unknown" : usd(a.cost, 4),
+    tip: `<b>${esc(a.name)}</b><br>${a.runs} run(s), ${a.verified} verified<br>known spend ${usd(a.cost)}<br>${a.unknown_cost} run(s) with unknown cost` }));
+  return `
+  <div class="grid two">
+    <div class="card"><h2>Known spend per agent</h2>${bars(spend, { empty: "No runs with a cost receipt yet" })}
+      <div class="muted" style="margin-top:8px">Runs without a provider receipt are listed as unknown, never as $0.</div></div>
+    <div class="card"><h2>Verified rate per agent</h2>${bars(s.agents.filter((a) => a.runs).map((a) => ({ name: a.name,
+      value: a.verified / a.runs, label: `${a.verified}/${a.runs}`, tip: `${esc(a.name)}: ${a.verified} of ${a.runs} verified` +
+      (a.killed ? `<br>${a.killed} killed by the stream guard` : "") })), { max: 1, empty: "No agent runs yet" })}</div>
+  </div>
+  <h2>Runs (newest first)</h2>
+  <div class="table-wrap"><table><thead><tr><th>Run</th><th>Agent</th><th>Status</th><th class="num">Duration</th>
+    <th class="num">Cost</th><th>Checks</th></tr></thead><tbody>
+  ${s.runs.map((r) => `<tr><td class="mono">${esc(r.id)}${r.isolated ? ' <span class="chip">worktree</span>' : ""}</td>
+    <td>${esc(r.agent || "—")}</td><td>${runStatus(r)}</td>
+    <td class="num">${r.duration_ms == null ? "—" : (r.duration_ms / 1000).toFixed(1) + " s"}</td>
+    <td class="num" data-tip="${esc(r.cost_source || "")}">${usd(r.cost)}${r.estimated ? " (est.)" : ""}</td>
+    <td>${r.checks.map((c) => `<div>${c.passed ? "✓" : "✕"} <code>${esc(c.cmd)}</code></div>`).join("") || '<span class="muted">—</span>'}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="empty">No runs yet — <code>vcmd run -- &lt;command&gt;</code></td></tr>`}
+  </tbody></table></div>`;
+}
+
+function viewAgents(s) {
+  return `<div class="card" style="margin-bottom:12px"><form class="inline" onsubmit="return false">
+    <span class="grow">Circuit breaker: agents whose provider failed (login, quota, outage) are skipped for a cooldown.</span>
+    <button id="reset-health">Reset all circuits</button></form></div>
+  <div class="table-wrap"><table><thead><tr><th>Agent</th><th>Health</th><th class="num">Runs</th><th class="num">Verified</th>
+    <th class="num">Known spend</th><th>Parser</th><th>Command</th></tr></thead><tbody>
+  ${s.agents.map((a) => `<tr><td><b>${esc(a.name)}</b></td><td>${status(a.circuit)}${a.last_reason ? `<div class="muted" style="font-size:12px">${esc(a.last_reason)}</div>` : ""}</td>
+    <td class="num">${a.runs}</td><td class="num">${a.verified}</td><td class="num">${usd(a.cost)}</td>
+    <td>${a.parser ? `<span class="chip">${esc(a.parser)}</span>` : '<span class="muted">none</span>'}</td>
+    <td><code>${esc(a.argv)}</code></td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function viewLedger(s) {
+  return `<div class="muted" style="margin-bottom:10px">Every failed approach is remembered and handed to the next agent as a hard constraint.
+    Entries with a pattern are enforced by the stream guard.</div>
+  <div class="table-wrap"><table><thead><tr><th>When</th><th>Agent</th><th>Tried</th><th>Failure</th><th>Files</th><th>Guard pattern</th></tr></thead><tbody>
+  ${s.ledger.map((e) => `<tr><td class="mono">${esc((e.created_at_utc || "").replace("T", " ").slice(0, 19))}</td><td>${esc(e.agent || "—")}</td>
+    <td>${esc(e.tried)}</td><td>${esc(e.failure)}</td><td>${(e.files || []).map((f) => `<span class="chip mono">${esc(f)}</span>`).join("")}</td>
+    <td>${e.pattern ? `<code>${esc(e.pattern)}</code>` : ""}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="empty">Nothing has failed yet.</td></tr>`}</tbody></table></div>`;
+}
+
+function viewQueue(s) {
+  const order = ["frozen", "running", "pending", "failed", "blocked", "done"];
+  const tasks = [...s.queue].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+  return `<div class="card" style="margin-bottom:12px"><h2>Add a task</h2>
+    <form class="inline" id="add-task"><input class="grow" name="goal" placeholder="Goal, e.g. Add rate limiting to /login" required>
+      <input class="grow" name="focus" placeholder="Focus (optional): src/auth.ts:login">
+      <input class="grow" name="gate" placeholder="Extra gate (optional): npm test"><button class="primary">Add</button></form>
+    <div class="muted" style="margin-top:6px">Run it with <code>vcmd queue run claude --jobs 2</code>.</div></div>
+  <div class="card">${tasks.map((t) => `<div class="q-task"><div>${status(t.status)} <b>${esc(t.goal)}</b></div>
+    <div class="muted mono" style="font-size:12px">${esc(t.id)}${t.commit ? " · commit " + esc(t.commit) : ""}${t.after?.length ? " · after " + esc(t.after.join(", ")) : ""}</div>
+    ${t.note ? `<div class="muted">${esc(t.note)}</div>` : ""}
+    ${t.status === "frozen" ? `<div class="question">? ${esc(t.question)}</div>
+      ${(t.options || []).map((o, i) => `<button class="opt" data-id="${esc(t.id)}" data-text="${esc(o)}">${String.fromCharCode(65 + i)}) ${esc(o)}</button> `).join("")}
+      <form class="inline answer" data-id="${esc(t.id)}" style="margin-top:6px"><input class="grow" name="text" placeholder="Or type your decision" required>
+      <button class="primary">Answer</button></form>` : ""}</div>`).join("")
+    || `<div class="empty">Queue is empty.</div>`}</div>`;
+}
+
+function viewBench(s) {
+  if (!s.bench.length) return `<div class="empty card">No benchmark results yet — <code>vcmd bench benchmarks/ts200 --arm claude:plain --arm claude:frame --jobs 8</code></div>`;
+  return s.bench.slice().reverse().map((b) => {
+    const arms = Object.entries(b.arms);
+    const colorFor = (name) => name.endsWith(":frame") ? "var(--s2)" : "var(--s1)";
+    const passRows = arms.map(([n, a]) => ({ name: n, value: a.pass_rate, label: `${a.passed}/${a.runs}`, color: colorFor(n),
+      ci: a.wilson95, tip: `<b>${esc(n)}</b><br>pass rate ${pct(a.pass_rate)}<br>Wilson 95%: ${pct(a.wilson95[0])}–${pct(a.wilson95[1])}<br>median wall ${a.median_wall_s}s` }));
+    const costRows = arms.filter(([, a]) => a.known_cost_usd != null).map(([n, a]) => ({ name: n, value: a.known_cost_usd / Math.max(1, a.runs - a.runs_with_unknown_cost),
+      label: usd(a.known_cost_usd / Math.max(1, a.runs - a.runs_with_unknown_cost)), color: colorFor(n),
+      tip: `<b>${esc(n)}</b><br>total known ${usd(a.known_cost_usd)}<br>${a.runs_with_unknown_cost} run(s) unknown cost` }));
+    const timeRows = arms.map(([n, a]) => ({ name: n, value: a.median_wall_s || 0, label: `${a.median_wall_s}s`, color: colorFor(n) }));
+    const handoff = arms.filter(([, a]) => a.rescued !== undefined);
+    return `<div class="card" style="margin-bottom:12px"><h2>${esc(b.suite)} <span class="muted">· ${b.tasks} tasks · ${b.results} runs · ${esc(b.source)}</span></h2>
+      <div class="legend"><span style="--c:var(--s1)">plain prompt</span><span style="--c:var(--s2)">context frame</span><span>whisker = Wilson 95% interval</span></div>
+      <div class="grid two"><div><h2>Pass rate</h2>${bars(passRows, { max: 1 })}</div>
+        <div><h2>Cost per run (known)</h2>${bars(costRows, { empty: "No cost receipts" })}
+        <h2>Median wall time</h2>${bars(timeRows)}</div></div>
+      ${handoff.length ? `<h2>Handoff after a failed first attempt</h2><table><thead><tr><th>Arm</th><th class="num">First attempt passed</th>
+        <th class="num">Second attempts</th><th class="num">Rescued</th></tr></thead><tbody>${handoff.map(([n, a]) =>
+        `<tr><td>${esc(n)}</td><td class="num">${a.first_attempt_passed}/${a.runs}</td><td class="num">${a.second_attempts}</td>
+         <td class="num">${a.rescued}/${a.second_attempts}</td></tr>`).join("")}</tbody></table>` : ""}
+      ${b.paired.length ? `<div class="muted" style="margin-top:10px">${b.paired.map((p) => `${esc(p.a)} only: ${p.a_only_passed} · ${esc(p.b)} only: ${p.b_only_passed} · same: ${p.same}`).join("<br>")}</div>` : ""}
+      <div class="muted" style="margin-top:6px">${b.caveats.map(esc).join(" · ")}</div></div>`;
+  }).join("");
+}
+
+async function viewHardware() {
+  $("hardware").innerHTML = `<div class="empty card">Probing hardware…</div>`;
+  const { hardware: h, recommendation: r } = await api("/api/hw");
+  const b = r.budget, m = r.model, rt = h.runtimes;
+  $("hardware").innerHTML = `<div class="grid kpis">
+    ${[["RAM", `${h.ram_total_gb ?? "?"} GB`, `${h.ram_available_gb ?? "?"} GB available`],
+       ["GPU", h.gpus.length ? h.gpus.map((g) => g.name).join(", ") : (h.apple_silicon ? "Apple Silicon" : "none"), h.gpus.length ? `${h.gpus[0].vram_free_gb.toFixed(1)} GB free VRAM` : "NVIDIA detection"],
+       ["Model budget", `${b.budget_gb} GB`, `${b.reserve_gb} GB kept for OS/IDE`],
+       ["CPUs", h.cpu_count, `${h.os} · ${h.arch}`]].map(([l, v, sub]) => `<div class="card tile"><div class="label">${l}</div><div class="value" style="font-size:20px">${esc(v)}</div><div class="sub">${esc(sub)}</div></div>`).join("")}
+  </div><div class="grid two" style="margin-top:12px"><div class="card"><h2>Local backup model</h2>
+    ${m ? `<div><b>${esc(m.tag)}</b> · ~${m.size_gb} GB</div><div class="muted">${esc(m.note)}</div>
+      <div style="margin-top:8px">${r.installed ? status("closed") + " installed in Ollama" : `Not installed: <code>ollama pull ${esc(m.tag)}</code>`}</div>
+      <div style="margin-top:8px">Register as fallback: <code>vcmd hw --add-agent local</code></div>
+      ${r.alternatives.length ? `<div class="muted" style="margin-top:6px">Also fits: ${r.alternatives.map(esc).join(", ")}</div>` : ""}`
+      : `<div class="muted">No local model fits safely on this machine.</div>`}
+    <div class="muted" style="margin-top:8px">${b.speed === "slow" ? "CPU inference: expect slow generation." : "GPU / unified memory speed."}</div></div>
+    <div class="card"><h2>Runtimes</h2>
+      <div>Ollama: ${rt.ollama.server ? status("closed") + " server running" : rt.ollama.binary ? "installed, server not running" : "not found"}</div>
+      ${rt.ollama.models.length ? `<div>${rt.ollama.models.map((x) => `<span class="chip mono">${esc(x)}</span>`).join("")}</div>` : ""}
+      <div>llama.cpp: ${esc(rt.llama_cpp || "not found")}</div><div>LM Studio: ${esc(rt.lm_studio || "not found")}</div>
+      <div>Codex CLI: ${esc(rt.codex || "not found")}</div><div class="muted" style="margin-top:8px">Disk free: ${h.disk_free_gb} GB</div></div></div>`;
+}
+
+async function viewFrame() {
+  $("frame").innerHTML = `<div class="card"><div class="muted" style="margin-bottom:8px">Exactly what the next agent receives (plus a short instruction header).</div>
+    <pre class="frame">${esc(await api("/api/frame"))}</pre></div>`;
+}
+
+function viewKeys(s) {
+  const k = s.secrets, b = k.backend;
+  return `<div class="card" style="margin-bottom:12px"><h2>Add or replace a key</h2>
+    <form class="inline" id="add-key" autocomplete="off">
+      <input name="name" list="known-keys" placeholder="ANTHROPIC_API_KEY" pattern="[A-Z_][A-Z0-9_]*" required style="font-family:var(--mono)">
+      <datalist id="known-keys">${k.known.map((x) => `<option value="${esc(x.name)}">${esc(x.label)}</option>`).join("")}</datalist>
+      <input class="grow" type="password" name="value" placeholder="Paste the key — it is never shown again" required autocomplete="new-password">
+      <button class="primary">Save as secret</button></form>
+    <div style="margin-top:8px">${status(b.encrypted ? "encrypted" : "plaintext")} Stored in <b>${esc(b.name)}</b>.
+      Keys are passed only to agents V/COMMAND starts (not to checks), and a variable already set in your shell wins.</div>
+    <div class="hint" style="margin-top:10px">Storing <code>ANTHROPIC_API_KEY</code> makes Claude Code use API billing instead of your
+      Claude subscription login for agents started by V/COMMAND. Store it only if that is what you want.</div>
+    ${k.error ? `<div class="hint">${esc(k.error)}</div>` : ""}</div>
+  <div class="table-wrap"><table><thead><tr><th>Name</th><th>Used by</th><th>Value</th><th>Shell override</th><th></th></tr></thead><tbody>
+  ${k.stored.map((x) => `<tr><td class="mono"><b>${esc(x.name)}</b></td><td>${esc(x.label || "custom")}</td><td class="mono">${esc(x.hint)}</td>
+    <td>${x.in_environment ? "set in environment (wins)" : "—"}</td><td><button class="danger del-key" data-name="${esc(x.name)}">Delete</button></td></tr>`).join("")
+    || `<tr><td colspan="5" class="empty">No keys stored yet.</td></tr>`}</tbody></table></div>`;
+}
+
+// ---- wiring
+function render() {
+  const s = STATE;
+  $("project").textContent = s.project;
+  $("updated").textContent = "updated " + s.generated_at.slice(11);
+  $("overview").innerHTML = viewOverview(s);
+  $("runs").innerHTML = viewRuns(s);
+  $("agents").innerHTML = viewAgents(s);
+  $("ledger").innerHTML = viewLedger(s);
+  $("queue").innerHTML = viewQueue(s);
+  $("bench").innerHTML = viewBench(s);
+  $("keys").innerHTML = viewKeys(s);
+}
+async function load() {
+  try { STATE = await api("/api/state"); render(); }
+  catch (e) { $("overview").innerHTML = `<div class="card hint">Could not load data: ${esc(e.message)}</div>`; }
+}
+function show(id) {
+  for (const [t] of TABS) { $(t).hidden = t !== id; }
+  document.querySelectorAll("nav button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === id));
+  try { localStorage.setItem("vcmd-tab", id); } catch (_) {}
+  if (id === "hardware") viewHardware().catch((e) => $("hardware").innerHTML = `<div class="card hint">${esc(e.message)}</div>`);
+  if (id === "frame") viewFrame().catch((e) => $("frame").innerHTML = `<div class="card hint">${esc(e.message)}</div>`);
+}
+$("tabs").innerHTML = TABS.map(([id, label]) => `<button role="tab" data-tab="${id}">${label}</button>`).join("");
+$("tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) show(b.dataset.tab); });
+$("refresh").onclick = load;
+$("theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  document.documentElement.dataset.theme = cur === "dark" ? "light" : "dark";
+  try { localStorage.setItem("vcmd-theme", document.documentElement.dataset.theme); } catch (_) {}
+};
+try { const t = localStorage.getItem("vcmd-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+
+document.addEventListener("submit", async (e) => {
+  const f = e.target; e.preventDefault();
+  const data = Object.fromEntries(new FormData(f));
+  try {
+    if (f.id === "add-key") { const r = await api("/api/secret", { name: data.name.trim(), value: data.value }); f.reset(); toast(`Saved ${r.name} (${r.hint})`); }
+    else if (f.id === "add-task") { const r = await api("/api/queue/add", { goal: data.goal, focus: data.focus ? [data.focus] : [], gates: data.gate ? [data.gate] : [] }); toast(`Queued ${r.id}`); }
+    else if (f.classList.contains("answer")) { await api("/api/queue/answer", { id: f.dataset.id, text: data.text }); toast("Answer saved; task is back in the queue"); }
+    await load();
+  } catch (err) { toast("Error: " + err.message); }
+});
+document.addEventListener("click", async (e) => {
+  const t = e.target;
+  try {
+    if (t.matches(".del-key")) { if (!confirm(`Delete ${t.dataset.name}?`)) return; await api("/api/secret/delete", { name: t.dataset.name }); toast("Deleted"); await load(); }
+    else if (t.matches(".opt")) { await api("/api/queue/answer", { id: t.dataset.id, text: t.dataset.text }); toast("Answer saved"); await load(); }
+    else if (t.id === "reset-health") { await api("/api/health/reset", {}); toast("Circuits reset"); await load(); }
+  } catch (err) { toast("Error: " + err.message); }
+});
+let start = "overview";
+try { start = localStorage.getItem("vcmd-tab") || start; } catch (_) {}
+load().then(() => show(TABS.some(([t]) => t === start) ? start : "overview"));
+// auto-refresh, but never while you are typing (re-rendering would drop the input)
+setInterval(() => { if (!document.hidden && !document.activeElement?.matches("input, textarea, select")) load(); }, 15000);
+</script>
+</body>
+</html>
