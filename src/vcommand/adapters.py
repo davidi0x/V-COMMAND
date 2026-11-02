@@ -109,6 +109,17 @@ def _spec(name: str, raw: Any) -> dict[str, Any]:
     if cost is not None and cost not in COST_PARSERS:
         raise ValueError(f'Agent "{name}": unknown output parser {cost!r} (known: {", ".join(COST_PARSERS)})')
     spec = {"argv": list(argv), "cost": cost}
+    secrets = raw.get("secrets")
+    if secrets is not None:
+        if not (isinstance(secrets, list) and all(isinstance(x, str) and x for x in secrets)):
+            raise ValueError(f'Agent "{name}": "secrets" must be a list of secret names (vcmd secret list)')
+        spec["secrets"] = list(secrets)
+    env = raw.get("env")
+    if env is not None:
+        if not (isinstance(env, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())):
+            raise ValueError(f'Agent "{name}": "env" must map variable names to string values '
+                             f'(for keys use "secrets", not "env")')
+        spec["env"] = dict(env)
     for key in ("resume", "fork"):
         alt = raw.get(key)
         if alt is not None:
@@ -277,19 +288,30 @@ def _changed_files(evidence: dict[str, Any], limit: int = 5) -> list[str]:
     return files[:limit] + ([f"+{len(files) - limit} more"] if len(files) > limit else [])
 
 
-def agent_env(root: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
+def agent_env(root: Path, extra: dict[str, str] | None = None, spec: dict[str, Any] | None = None) -> dict[str, str]:
     """Environment for launched agents: stored API keys (vcmd secret / dashboard), plus VCOMMAND_ROOT so
-    `vcmd` inside them (CLI or hooks) targets the main project. Variables already set win over secrets."""
+    `vcmd` inside them (CLI or hooks) targets the main project. Variables already set win over secrets.
+
+    Bring your own keys: V/COMMAND ships none. An agent template may name the secrets it needs
+    (`"secrets": ["MY_PROVIDER_KEY"]`): it then receives only those, never the others. Without that list it
+    receives every stored key except channel credentials (backwards compatible). `"env"` adds plain
+    variables such as a provider's base URL."""
     secrets: dict[str, str] = {}
     if not os.environ.get("VCOMMAND_NO_SECRETS"):
         try:
             from .secrets_store import secrets_env
             secrets = secrets_env()
+            if spec is not None and "secrets" in spec:
+                secrets = {k: v for k, v in secrets.items() if k in spec["secrets"]}
         except (OSError, ValueError, subprocess.SubprocessError):
             secrets = {}
     from .secrets_store import NOT_FOR_AGENTS
     shell = {k: v for k, v in os.environ.items() if k not in NOT_FOR_AGENTS and k not in PARENT_SESSION_VARS}
-    return {**secrets, **shell, "VCOMMAND_ROOT": str(root.resolve()), "VCOMMAND_WRAPPED": "1", **(extra or {})}
+    if spec is not None and "secrets" in spec:  # scoped agent: shell-exported keys of other providers stay out
+        from .secrets_store import KNOWN
+        shell = {k: v for k, v in shell.items() if k not in KNOWN or k in spec["secrets"]}
+    return {**secrets, **shell, **((spec or {}).get("env") or {}), "VCOMMAND_ROOT": str(root.resolve()),
+            "VCOMMAND_WRAPPED": "1", **(extra or {})}
 
 
 # When V/COMMAND itself runs inside a Claude Code session, these belong to that parent session. Found live:
@@ -435,7 +457,7 @@ def _run_agents(root: Path, agents: list[str], *, attempts: int | None = None, i
         print(f"\nV/  HANDOFF    attempt {n}/{attempts} -> {name}", file=out, flush=True)
         common = dict(timeout=timeout, check_timeout=check_timeout, agent=name, record_argv=shown, gates_judge=True,
                       child_stdin=subprocess.DEVNULL,
-                      env=agent_env(root, {"VCOMMAND_SESSION": sname, **(extra_env or {}), "VCOMMAND_AGENT": name}),
+                      env=agent_env(root, {"VCOMMAND_SESSION": sname, **(extra_env or {}), "VCOMMAND_AGENT": name}, spec),
                       cost_parser=spec["cost"],
                       extra_checks=extra_checks,
                       parser_context=parser_context(root, cfg, spec["argv"], agent=name, extra_env=extra_env))
@@ -533,7 +555,7 @@ def run_race(root: Path, agents: list[str], *, instruction: str | None = None, t
             with Worktree(root, head, links) as wt:
                 item = run_task(root, argv, timeout=timeout, check_timeout=check_timeout, agent=name,
                                 record_argv=shown, gates_judge=True, child_stdin=subprocess.DEVNULL,
-                                child_stdout=subprocess.DEVNULL, env=agent_env(root), cost_parser=spec["cost"],
+                                child_stdout=subprocess.DEVNULL, env=agent_env(root, None, spec), cost_parser=spec["cost"],
                                 parser_context=parser_context(root, cfg, spec["argv"], agent=name), cwd=wt.path,
                                 isolated=True, cancel=cancel, log=_Quiet())
                 results[name] = item

@@ -204,6 +204,53 @@ class ResumeAndRoleTests(Repo):
         self.assertNotIn("SLACK_WEBHOOK_URL", env)
 
 
+class BringYourOwnTests(Repo):
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("VCOMMAND_NO_SECRETS", None)
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        p = mock.patch.dict(os.environ, {"VCOMMAND_HOME": home.name, "VCOMMAND_SECRETS_BACKEND": "file"})
+        p.start()
+        self.addCleanup(p.stop)
+        from vcommand import secrets_store as ss
+        self.ss = ss
+        ss.set_secret("OPENAI_API_KEY", "sk-openai-111111")
+        ss.set_secret("MY_PROVIDER_KEY", "mine-222222")
+
+    def test_agent_receives_only_its_own_secrets_and_env(self):
+        spec = {"argv": ["x", "{prompt}"], "cost": None, "secrets": ["MY_PROVIDER_KEY"],
+                "env": {"MY_BASE_URL": "https://gateway.example/v1"}}
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-shell"}):
+            env = agent_env(self.root, None, spec)
+            legacy = agent_env(self.root)
+        self.assertEqual(env["MY_PROVIDER_KEY"], "mine-222222")
+        self.assertEqual(env["MY_BASE_URL"], "https://gateway.example/v1")
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("ANTHROPIC_API_KEY", env)  # other providers' keys stay out of a scoped agent
+        self.assertIn("OPENAI_API_KEY", legacy)     # unscoped agents behave as before
+
+    def test_template_validation(self):
+        cfg = {"agents": {"a": {"argv": ["x", "{prompt}"], "secrets": "OPENAI_API_KEY"}}}
+        with self.assertRaises(ValueError):
+            agent_templates(cfg)
+        cfg = {"agents": {"a": {"argv": ["x", "{prompt}"], "env": {"K": 1}}}}
+        with self.assertRaises(ValueError):
+            agent_templates(cfg)
+
+    def test_connect_agent_cli(self):
+        code, _ = self.cli("connect", "agent", "mine", "--key", "MY_PROVIDER_KEY", "--env", "BASE=https://g.example",
+                           "--", "my-cli", "run", "{prompt}")
+        self.assertEqual(code, 0)
+        spec = agent_templates(load_config(self.root))["mine"]
+        self.assertEqual((spec["secrets"], spec["env"]), (["MY_PROVIDER_KEY"], {"BASE": "https://g.example"}))
+        self.assertEqual(self.cli("connect", "agent", "bad", "--", "my-cli")[0], 2)  # needs {prompt}
+
+    def test_no_secret_value_in_config_or_evidence(self):
+        self.cli("connect", "agent", "mine", "--key", "MY_PROVIDER_KEY", "--", "my-cli", "{prompt}")
+        self.assertNotIn("mine-222222", (self.root / ".vcommand" / "config.json").read_text())
+
+
 class FakeApi(BaseHTTPRequestHandler):
     calls: list = []
     updates: list = []
@@ -287,6 +334,25 @@ class ChannelTests(Repo):
         self.assertIn("telegram", text)
         self.assertEqual(self.cli("channel", "test")[0], 0)
         self.assertEqual(self.cli("channel", "add", "ntfy", "--topic", "short")[0], 2)
+
+    def test_connect_your_own_bot(self):
+        with mock.patch.dict(os.environ, {"VCOMMAND_HOME": tempfile.mkdtemp(), "VCOMMAND_SECRETS_BACKEND": "file"}):
+            os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+            with self.assertRaises(ValueError):
+                ch.connect_telegram(self.root, "nope")
+            FakeApi.updates = []
+            with self.assertRaises(ValueError) as e:  # nobody wrote to the bot yet
+                ch.connect_telegram(self.root, "42:abcdefghijklmnopqrstuv")
+            self.assertIn("Send any message", str(e.exception))
+            FakeApi.updates = [{"update_id": 1, "message": {"chat": {"id": 555}, "text": "hi"}}]
+            item = ch.connect_telegram(self.root, "42:abcdefghijklmnopqrstuv")
+            self.assertEqual(item["chat_id"], "555")
+            from vcommand import secrets_store as ss
+            self.assertEqual(ss.get_secret("TELEGRAM_BOT_TOKEN"), "42:abcdefghijklmnopqrstuv")
+            cfg = (self.root / ".vcommand" / "config.json").read_text()
+            self.assertNotIn("abcdefghijklmnopqrstuv", cfg)  # the token lives in the secret store only
+            hosts = {c[0].split("/")[1] for c in FakeApi.calls}
+            self.assertTrue(all(h.startswith("bot42:") for h in hosts))  # only the user's own bot was contacted
 
     def test_failures_never_raise(self):
         with mock.patch.dict(os.environ, {"VCOMMAND_TELEGRAM_API": "http://127.0.0.1:9"}):

@@ -370,3 +370,55 @@ def run_autopilot(root: Path, agents: list[str], *, every_s: int, use_loop: bool
     finally:
         stop.set()
     return 0
+
+
+# ---------------------------------------------------------------- bring your own bot / webhook
+
+def connect_telegram(root: Path, token: str, chat_id: str | None = None) -> dict[str, Any]:
+    """Use YOUR bot: validate the token with Telegram, find your chat id, store the token as a secret.
+
+    V/COMMAND has no bot of its own. Create one with @BotFather, paste its token here, then send any
+    message to the bot so the chat id can be read (or pass chat_id)."""
+    token = token.strip()
+    if ":" not in token or len(token) < 20:
+        raise ValueError("That does not look like a bot token (format 123456:ABC…, from @BotFather)")
+    try:
+        me = _tg(token, "getMe", {}, timeout=TIMEOUT_S)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise ValueError(f"Telegram rejected the token or is unreachable ({type(error).__name__})") from error
+    if not me.get("ok"):
+        raise ValueError("Telegram rejected the token")
+    username = (me.get("result") or {}).get("username", "your bot")
+    if not chat_id:
+        try:
+            ups = _tg(token, "getUpdates", {"timeout": 0, "allowed_updates": ["message"]}, timeout=TIMEOUT_S)
+        except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+            raise ValueError(f"Could not read updates ({type(error).__name__})") from error
+        chats = [str((u.get("message") or {}).get("chat", {}).get("id", "")) for u in ups.get("result", [])]
+        chats = [c for c in chats if c]
+        if not chats:
+            raise ValueError(f"Send any message to @{username} in Telegram first, then run this again "
+                             f"(or pass --chat <id>)")
+        chat_id = chats[-1]
+    from .secrets_store import set_secret
+    set_secret("TELEGRAM_BOT_TOKEN", token)
+    item = add_channel(root, "telegram", chat_id=chat_id)
+    return {**item, "bot": username}
+
+
+def connect_slack(root: Path, url: str) -> dict[str, Any]:
+    url = url.strip()
+    if not url.startswith("https://"):
+        raise ValueError("A Slack incoming webhook URL starts with https://hooks.slack.com/…")
+    from .secrets_store import set_secret
+    set_secret("SLACK_WEBHOOK_URL", url)
+    return add_channel(root, "slack")
+
+
+def connect_webhook(root: Path, name: str, url: str) -> dict[str, Any]:
+    if not url.strip().startswith(("https://", "http://")):
+        raise ValueError("A webhook URL starts with https://")
+    from .secrets_store import set_secret, validate_name
+    name = validate_name(name)
+    set_secret(name, url.strip())
+    return add_channel(root, "webhook", secret=name)

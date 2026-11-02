@@ -149,6 +149,22 @@ def make_parser() -> argparse.ArgumentParser:
     ch_sub.add_parser("test", help="Send a test message to every channel")
     ch_rm = ch_sub.add_parser("rm", help="Remove channel #N")
     ch_rm.add_argument("index", type=int)
+    conn = sub.add_parser("connect", help="Bring your own: connect YOUR Telegram bot, Slack, ntfy topic or webhook")
+    conn_sub = conn.add_subparsers(dest="conn_kind", required=True)
+    c_tg = conn_sub.add_parser("telegram", help="Your bot from @BotFather (token is read hidden, stored as a secret)")
+    c_tg.add_argument("--chat", help="Chat id (default: read from the last message you sent the bot)")
+    conn_sub.add_parser("slack", help="Your Slack incoming webhook URL (read hidden)")
+    c_nt = conn_sub.add_parser("ntfy", help="Your ntfy topic (ntfy.sh or your own server)")
+    c_nt.add_argument("topic", nargs="?", help="Topic name (default: a random one)")
+    c_nt.add_argument("--server")
+    c_wh = conn_sub.add_parser("webhook", help="Any HTTPS endpoint (Discord, Teams, n8n, your service)")
+    c_wh.add_argument("name", help="Secret name for the URL, e.g. MY_HOOK_URL")
+    c_ag = conn_sub.add_parser("agent", help="Register any CLI agent with its own API key and base URL")
+    c_ag.add_argument("name")
+    c_ag.add_argument("--key", help="Secret name for its API key (value read hidden if not yet stored)")
+    c_ag.add_argument("--env", action="append", default=[], metavar="NAME=VALUE", help="Plain variable, e.g. BASE_URL=…")
+    c_ag.add_argument("--parser", choices=["claude-json", "claude-stream", "codex-jsonl"])
+    c_ag.add_argument("argv", nargs="*", help="-- command with {prompt}")
     remote = sub.add_parser("remote", help="Steer V/COMMAND from your phone (Telegram bot, long polling)")
     remote.add_argument("kind", choices=["telegram"])
     remote.add_argument("--once", action="store_true", help="Process pending commands and exit")
@@ -336,6 +352,61 @@ def _workflow_command(args, root: Path, cfg: dict) -> int:
                           timeout=args.timeout, check_timeout=args.check_timeout, budget_usd=args.budget)
     return w.run_wake(root, args.agents, use_loop=args.loop, max_tasks=args.max_tasks, until=args.until,
                       budget_usd=args.budget, timeout=args.timeout, jobs=args.jobs)
+
+
+def _hidden(prompt: str) -> str:
+    import getpass
+    value = sys.stdin.readline() if not sys.stdin.isatty() else getpass.getpass(prompt)
+    return value.strip()
+
+
+def _connect_command(args, root: Path, cfg: dict) -> int:
+    """Bring your own keys: everything is stored in YOUR OS secret store and used only from this machine."""
+    from . import channels as ch
+    from . import secrets_store as ss
+    kind = args.conn_kind
+    if kind == "telegram":
+        item = ch.connect_telegram(root, _hidden("Bot token from @BotFather: "), args.chat)
+        print(f"V/  Connected your bot @{item['bot']} (chat {item['chat_id']}); token stored in {ss.describe_backend()['name']}")
+        print("V/  Test: vcmd channel test   ·   Steer from your phone: vcmd remote telegram")
+    elif kind == "slack":
+        ch.connect_slack(root, _hidden("Slack incoming webhook URL: "))
+        print("V/  Slack connected (notifications only). Test: vcmd channel test")
+    elif kind == "ntfy":
+        import secrets as _secrets
+        topic = args.topic or "vcmd-" + _secrets.token_urlsafe(12)
+        ch.add_channel(root, "ntfy", topic=topic, server=args.server)
+        print(f"V/  ntfy topic: {topic}  (subscribe to it in the ntfy app; the name is the password)")
+    elif kind == "webhook":
+        ch.connect_webhook(root, args.name, _hidden(f"URL for {args.name}: "))
+        print(f"V/  Webhook connected; URL stored as secret {args.name}")
+    else:
+        argv = tokens(args.argv)
+        if not argv or "{prompt}" not in argv:
+            raise ValueError('Use: vcmd connect agent NAME --key MY_KEY --env BASE_URL=https://… -- my-cli run "{prompt}"')
+        spec: dict = {"argv": argv}
+        if args.parser:
+            spec["parser"] = args.parser
+        if args.key:
+            ss.validate_name(args.key)
+            if not any(x["name"] == args.key for x in ss.list_secrets()) and not os.environ.get(args.key):
+                ss.set_secret(args.key, _hidden(f"{args.key}: "))
+            spec["secrets"] = [args.key]
+        env = {}
+        for item in args.env:
+            name, sep, value = item.partition("=")
+            if not sep or not name:
+                raise ValueError("--env needs NAME=VALUE")
+            env[name] = value
+        if env:
+            spec["env"] = env
+        cfg.setdefault("agents", {})[args.name] = spec
+        from .adapters import agent_templates
+        agent_templates(cfg)  # validate before saving
+        save_config(root, cfg)
+        print(f"V/  Agent '{args.name}' registered" + (f"; it receives only the secret {args.key}" if args.key else ""))
+        print(f"V/  Run: vcmd agent {args.name}")
+    return 0
 
 
 def _parallel_command(args, root: Path, cfg: dict) -> int:
@@ -756,6 +827,8 @@ def main(argv: list[str] | None = None) -> int:
                     who = f" [{e['agent']}]" if e.get("agent") else ""
                     print(f"{e['id']}  {e['created_at_utc']}{who}\n  tried:   {e['tried']}\n  failed:  {e['failure']}")
             return 0
+        if args.command == "connect":
+            return _connect_command(args, root, cfg)
         if args.command in {"worktree", "sessions", "msg", "channel", "remote", "autopilot", "roles"}:
             return _parallel_command(args, root, cfg)
         if args.command in {"decide", "decisions", "todo", "handoff", "approve", "guard", "loop", "wake"}:

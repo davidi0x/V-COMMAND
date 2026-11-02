@@ -265,6 +265,28 @@ Tested with a local fake Telegram API (approval message, `/approve` from the all
 stranger's `/approve` ignored, `/queue`, offset handling). Not tested against the real Telegram,
 Slack or ntfy services from this environment.
 
+## 12. Bring your own keys — V/COMMAND ships none
+
+V/COMMAND has no account, no proxy, no hosted bot and no API keys of its own, and it sends nothing to
+us. Every key and token is yours, stored in your OS secret store (`vcmd secret`, or the dashboard),
+and used only from your machine. The only hosts it contacts are the ones you configure: your agent's
+own provider (through the agent CLI), your Telegram bot, your Slack webhook, your ntfy server.
+
+```bash
+vcmd connect telegram          # paste YOUR bot token (from @BotFather); message the bot once; chat id is found for you
+vcmd connect slack             # YOUR incoming-webhook URL
+vcmd connect ntfy              # a random topic on ntfy.sh, or --server https://your-ntfy.example
+vcmd connect webhook MY_HOOK   # any HTTPS endpoint (Discord, Teams, n8n, your service)
+vcmd connect agent mine --key MY_PROVIDER_KEY --env MY_BASE_URL=https://gateway.example/v1 \
+     --parser claude-stream -- my-cli run "{prompt}"
+```
+
+`connect agent` registers any CLI with **its own** key: the agent receives only the secrets named in
+its `"secrets"` list (plus its `"env"` variables, e.g. a base URL), never the keys of your other
+providers. Agents without a `"secrets"` list keep the old behaviour (every stored key except channel
+credentials). Values are read hidden (or from stdin), never printed, never written to the config or
+to evidence — the config holds only names.
+
 ## Start smaller
 
 One focused task, a five-field brief, the gates that define done, the hooks installed, and a

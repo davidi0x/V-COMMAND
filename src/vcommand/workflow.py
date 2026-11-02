@@ -592,7 +592,7 @@ def _text_role(root: Path, agent: str, instruction: str, *, out: TextIO, timeout
     before = _tree_fingerprint(root)
     print(f"\nV/  ROLE       {label} -> {agent}", file=out, flush=True)
     item = run_task(root, argv, timeout=timeout, agent=f"{agent}:{label}", record_argv=shown,
-                    child_stdin=subprocess.DEVNULL, env=agent_env(root), cost_parser=spec["cost"],
+                    child_stdin=subprocess.DEVNULL, env=agent_env(root, None, spec), cost_parser=spec["cost"],
                     parser_context=parser_context(root, cfg, spec["argv"]), log=out, run_checks=False)
     text = item.get("agent_text")
     if fallback_file:
