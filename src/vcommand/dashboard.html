@@ -37,7 +37,7 @@
 * { box-sizing: border-box; }
 html { background: var(--page); }
 body { margin: 0; background: var(--page); color: var(--ink); font: 450 15px/1.45 "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
-       -webkit-font-smoothing: antialiased; padding-bottom: 120px; }
+       -webkit-font-smoothing: antialiased; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
 :focus-visible { outline: 3px solid var(--violet); outline-offset: 2px; border-radius: 10px; }
@@ -72,7 +72,7 @@ nav.tabs button[aria-selected="true"] { color: var(--ink); font-weight: 650; }
 nav.tabs .pill { position: absolute; top: 5px; bottom: 5px; left: 0; border-radius: 999px; background: var(--card);
                  box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: transform 300ms var(--ease-in-out), width 300ms var(--ease-in-out); }
 
-main { max-width: 1520px; margin: 0 auto; padding: 0 40px; view-transition-name: page; }
+main { flex: 1 0 auto; width: 100%; max-width: 1520px; margin: 0 auto; padding: 0 40px; view-transition-name: page; }
 h1.hero { font-weight: 900; font-size: clamp(48px, 7.4vw, 112px); line-height: .88; letter-spacing: -0.055em; margin: 34px 0 26px; max-width: 14ch; }
 h1.hero .line { display: block; overflow: hidden; padding-bottom: .06em; }
 h1.hero .line > span { display: inline-block; }
@@ -166,9 +166,10 @@ label.lbl { display: block; font-weight: 600; font-size: 14px; margin: 0 0 7px; 
 .provider:last-child { border-bottom: 0; }
 
 /* ---------- command bar ---------- */
-.command { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(1440px, calc(100% - 64px)); z-index: 20;
+/* part of the page, not floating: after the content, and pushed to the window bottom on short pages */
+.command { position: relative; flex: none; margin: 20px auto 18px; width: min(1440px, calc(100% - 80px)); z-index: 2;
            display: flex; align-items: center; gap: 14px; background: var(--bar); color: var(--bar-ink); border-radius: 30px; padding: 12px 12px 12px 26px;
-           box-shadow: 0 18px 40px rgba(10,10,20,.25); }
+           }
 .command .spark { width: 30px; height: 30px; flex: none; }
 .command .sep { width: 2px; height: 34px; background: rgba(255,255,255,.25); flex: none; }
 .command input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; font-size: 22px; color: #fff; padding: 8px 4px; }
@@ -181,7 +182,7 @@ label.lbl { display: block; font-weight: 600; font-size: 14px; margin: 0 0 7px; 
 .go svg { width: 24px; height: 24px; }
 .go:active { transform: scale(0.94); }
 
-#toast { position: fixed; left: 50%; bottom: 112px; z-index: 30; padding: 13px 22px; border-radius: 999px; background: #000; color: #fff; font-weight: 600;
+#toast { position: fixed; left: 50%; bottom: 28px; z-index: 30; padding: 13px 22px; border-radius: 999px; background: #000; color: #fff; font-weight: 600;
          opacity: 0; transform: translate(-50%, 16px); pointer-events: none; transition: opacity 400ms ease, transform 400ms ease; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #tip { position: fixed; z-index: 40; pointer-events: none; padding: 9px 12px; border-radius: 12px; background: #000; color: #fff; font-size: 13px;
@@ -249,12 +250,12 @@ label.lbl { display: block; font-weight: 600; font-size: 14px; margin: 0 0 7px; 
   .c3, .c4, .c5, .c6, .c7, .c8, .c12 { grid-column: span 12; }
   .card { padding: 22px; }
   .kanban, .grid2, .timeline { grid-template-columns: 1fr; }
-  .command { width: calc(100% - 24px); bottom: 10px; padding-left: 16px; }
+  .command { width: calc(100% - 32px); margin: 16px auto 12px; padding-left: 16px; }
   .command input { font-size: 17px; }
   .command .sep, .command .spark { display: none; }
   .bars .bar { grid-template-columns: 80px 1fr 70px; }
   .provider { grid-template-columns: 1fr; }
-  #toast { bottom: 96px; }
+  #toast { bottom: 20px; }
 }
 </style>
 </head>
