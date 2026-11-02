@@ -309,23 +309,42 @@ def start_background(root: Path, port: int = 0) -> dict[str, Any]:
         with socket.socket() as probe_socket:
             probe_socket.bind(("127.0.0.1", 0))
             port = probe_socket.getsockname()[1]
-    kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
-                              "cwd": root, "env": {**os.environ, "VCOMMAND_DASHBOARD_TOKEN": token}}
+    log_path = root / CONFIG_DIR / "dashboard.log"
+    log = open(log_path, "w", encoding="utf-8")  # noqa: SIM115 - handed to the child process
+    kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "cwd": root,
+                              "env": {**os.environ, "VCOMMAND_DASHBOARD_TOKEN": token, "PYTHONUNBUFFERED": "1"}}
     if os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     else:
         kwargs["start_new_session"] = True
-    proc = subprocess.Popen([sys.executable, "-m", "vcommand", "dashboard", "--port", str(port), "--no-open"], **kwargs)
+    # -X faulthandler: if start-up hangs, SIGABRT dumps every thread's stack into the log
+    proc = subprocess.Popen([sys.executable, "-X", "faulthandler", "-m", "vcommand", "dashboard", "--port", str(port),
+                             "--no-open"], **kwargs)
+    log.close()
     info = {"pid": proc.pid, "port": port, "url": f"http://127.0.0.1:{port}/?token={token}"}
-    # a cold interpreter can take several seconds (seen on macOS CI runners): wait up to 20 s,
-    # fail fast if the process dies, and never leave an orphan behind on failure
+
+    def tail() -> str:
+        try:
+            text = log_path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            return ""
+        return ("; log: " + text[-1500:]) if text else ""
+
+    # a cold interpreter can take several seconds: wait up to 20 s, fail fast if the process dies,
+    # and never leave an orphan behind on failure
     deadline = time.monotonic() + 20
     while not _alive(info):
         if proc.poll() is not None:
-            raise OSError(f"dashboard exited during start-up (code {proc.returncode})")
+            raise OSError(f"dashboard exited during start-up (code {proc.returncode}){tail()}")
         if time.monotonic() > deadline:
+            if os.name != "nt":
+                proc.send_signal(signal.SIGABRT)
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    pass
             proc.kill()
-            raise OSError("dashboard did not start within 20 s")
+            raise OSError(f"dashboard did not start within 20 s{tail()}")
         time.sleep(0.1)
     path = _state_path(root)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds the token
